@@ -8,142 +8,147 @@
 </p>
 
 <p align="center">
-  <img src="https://media.giphy.com/media/26BRv0ThflsHCqDrG/giphy.gif" width="900" alt="P2P messaging preview" />
+  <img src="https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif" width="920" alt="P2P network demo" />
 </p>
 
-Это экспериментальный проект мессенджера, построенного поверх распределённой хеш-таблицы Kademlia. Проект находится на ранней стадии разработки: уже есть рабочая база для сетевого взаимодействия, маршрутизации, хранения данных и безопасной передачи сообщений, но архитектура, сценарии и интерфейс ещё активно меняются.
+NodeX is a decentralized messaging prototype built on top of a Kademlia DHT. The project is currently in an early stage of development: the core network logic, routing, peer discovery, distributed storage, and a desktop messenger prototype are already in place, but the architecture and feature set are still evolving.
 
-## Что это за проект
+This project is meant as a practical learning platform and a strong foundation for building a real peer-to-peer messaging system in Rust.
 
-NodeX — это не “готовый коммерческий мессенджер”, а скорее продуманная исследовательская и учебная база для:
-
-- изучения Kademlia DHT;
-- реализации P2P-архитектуры в Rust;
-- хранения сообщений и метаданных в распределённой сети;
-- экспериментов с E2EE-подходом, идентичностью пользователя и сетевым обменом;
-- дальнейшего расширения в сторону более удобного клиентского интерфейса и протоколов.
-
-> Стадия: early prototype / pre-alpha
+> Status: early prototype / pre-alpha
 >
-> Это хороший проект для обучения, экспериментов, улучшений, рефакторинга и совместных PR.
+> The repo is intentionally open for experimentation, refactoring, improvements, and contributions.
 
 ---
 
-## Главные идеи
+## Why this project
 
-- 🌐 Децентрализованный сетевой слой на базе Kademlia
-- 🔐 Шифрование и идентичность пользователя
-- 💬 Сохранение сообщений и контактов локально
-- 📦 Mailbox-подобный обмен через DHT для офлайн-пользователей
-- 🧠 Параллельный поиск ближайших узлов и маршрутизация в сети
-- 🖥️ Нативный десктопный интерфейс на egui
-- 🧪 Возможность дальнейшего расширения и сопровождения
+This is not a finished commercial messenger. It is a hands-on distributed systems project focused on:
 
----
-
-## Что уже есть в проекте
-
-### P2P и маршрутизация
-
-- `KademliaNode` с логикой маршрутизации по XOR-метрике
-- `RoutingTable` и бакеты для хранения ближайших контактов
-- Iterative lookup для поиска узлов и значений
-- UDP транспорт в Tokio
-- retry / timeout / graceful error handling
-
-### Мессенджер
-
-- локальная база контактов и сообщений
-- E2EE-оболочка для сообщений
-- офлайн-репликация через DHT Mailbox
-- discovery peer по `presence_...` ключам
-- простой UI с карточкой пользователя и чатом
-
-### Система хранения и метрик
-
-- хранение ключей и значений
-- статистика RPC и трафика
-- логирование сетевых событий
-- поддержка сохранения состояния между запусками
+- learning Kademlia DHT mechanics;
+- building resilient peer-to-peer networking in Rust;
+- experimenting with encrypted messaging flows;
+- testing distributed message storage and offline delivery patterns;
+- creating a clean foundation for future UI and protocol extensions.
 
 ---
 
-## Демка интерфейса
+## Highlights
+
+- 🌐 Decentralized P2P routing with Kademlia-style node lookup
+- 🔐 Encrypted identity and messaging model
+- 💬 Local contacts and chat history persistence
+- 📦 DHT-backed mailbox flow for offline recipients
+- 🧠 Routing table, peer discovery, and distributed storage
+- 🖥️ Native desktop UI built with egui
+- 🧪 Open for further experimentation and PRs
+
+---
+
+## What is already implemented
+
+### Network layer
+
+- `KademliaNode` with XOR-based routing behavior
+- bucketed routing table and peer tracking
+- iterative lookup for nodes and values
+- UDP networking with Tokio
+- retry and timeout handling for RPC calls
+
+### Messenger layer
+
+- persistent contact database
+- local message storage
+- E2EE envelope creation and decryption
+- peer discovery via presence records in DHT
+- mailbox-style message relay for offline peers
+- GUI with user card, contacts, and chat panel
+
+### Storage and observability
+
+- key-value storage across network nodes
+- basic metrics for traffic and RPC flow
+- logging of network events and node state
+- persistence of identity and local data
+
+---
+
+## Demo
 
 <p align="center">
-  <img src="https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif" width="800" alt="NodeX demo" />
+  <img src="https://media.giphy.com/media/26BRv0ThflsHCqDrG/giphy.gif" width="800" alt="Messaging demo" />
 </p>
 
 <p align="center">
-  <img src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80" width="800" alt="Developer workspace" />
+  <img src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80" width="820" alt="Distributed systems workspace" />
 </p>
 
 ---
 
-## Как запустить
+## Quick start
 
-### 1. Сборка проекта
+### 1. Build the project
 
 ```bash
 cargo build
 ```
 
-### 2. Запуск первого узла
+### 2. Start first node
 
 ```bash
 cargo run -- --name "Alice" --port 8000
 ```
 
-### 3. Запуск второго узла с bootstrap
+### 3. Start second node with bootstrap
 
 ```bash
 cargo run -- --name "Bob" --port 8001 --bootstrap 127.0.0.1:8000
 ```
 
-### 4. Использование GUI
+### 4. Open the desktop app
 
-После запуска откроется нативное приложение с:
+The app launches a native Rust GUI with:
 
-- карточкой пользователя;
-- списком контактов;
-- чатом;
-- информацией о сетевых узлах и состоянии DHT.
+- user identity card
+- contact list
+- chat panel
+- network state information
 
 ---
 
-## Пример сценария
+## Example flow
 
 ```text
-Alice -> Bob: hello from P2P network
-Bob -> Alice: encrypted reply delivered via DHT mailbox
-Alice -> nodes: discover peer and routing table updates
+Alice -> Bob: hello from the P2P network
+Bob -> Alice: encrypted reply delivered through DHT mailbox
+Alice -> peers: discover route and update network state
 ```
 
 ---
 
-## Архитектура
+## Architecture
 
 ```text
 ┌──────────────────────────────────────────────┐
-│                  GUI / Desktop               │
-│       (contacts, chat, node info, status)   │
+│                 GUI / Desktop                 │
+│   contacts • chat • node info • status       │
 └──────────────────────┬───────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────┐
 │                 KadMessenger                  │
-│  - identities / presence / encrypted messages│
-│  - local contact DB / message inbox          │
+│  identity • presence • encrypted messages    │
+│  local DB • contact tracking • inbox         │
 └──────────────────────┬───────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────┐
 │                  KademliaNode                 │
-│  - routing table / lookup / UDP networking  │
-│  - storage / replication / RPC               │
+│ routing table • lookup • UDP networking      │
+│ storage • replication • RPC flow             │
 └──────────────────────┬───────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────┐
-│                 C FFI / crypto                │
-│  - hashing / serialization / verification    │
+│                    C FFI                     │
+│ hashing • serialization • verification       │
 └──────────────────────────────────────────────┘
 ```
 
@@ -151,25 +156,25 @@ Alice -> nodes: discover peer and routing table updates
 
 ## Roadmap
 
-### Сейчас
+### Current stage
 
-- рабочий прототип сетевого модуля;
-- базовый мессенджер с локальным хранилищем;
-- DHT-обмен и peer discovery;
-- простая GUI и демонстрационный сценарий.
+- working prototype of network routing
+- basic messenger flow with persisted contacts and messages
+- DHT peer discovery and distributed data exchange
+- simple GUI for demo and debugging
 
-### Дальше можно сделать
+### Planned next steps
 
-- [ ] более аккуратную схему обмена сообщениями;
-- [ ] улучшение E2EE-модели и верификации;
-- [ ] улучшенный пользовательский интерфейс;
-- [ ] более стабильный offline/online flow;
-- [ ] полноценную работу с контактами, профилями и группами;
-- [ ] больше автоматических тестов и кейсов отказов.
+- [ ] improve message delivery and offline handling
+- [ ] refine E2EE and identity verification
+- [ ] improve contact management and user profiles
+- [ ] improve UI/UX and node status panels
+- [ ] add broader test coverage for edge cases and failures
+- [ ] clean up API boundaries and project structure
 
 ---
 
-## Структура проекта
+## Project structure
 
 ```text
 .
@@ -206,33 +211,37 @@ Alice -> nodes: discover peer and routing table updates
 ├── scripts/
 │   ├── demo.ps1
 │   └── demo.sh
-├── README.md
+├── readme.md
 ├── CONTRIBUTING.md
 ├── LICENSE
-└── .gitignore
+├── .gitignore
+└── messenger_db_*.json
 ```
 
 ---
 
-## Важно
+## Important note
 
-Этот проект — хороший пример “первого рабочего прототипа”: уже есть идея, сеть, логика и интерфейс, но ещё есть место для роста, оптимизаций и сильной архитектуры. Поэтому именно сейчас особенно полезны идеи, правки, рефакторинг и предложения по улучшению.
+This project is an early-stage distributed messaging prototype. It already demonstrates the core idea, but it is still evolving and should be treated as a research/learning project rather than a production-ready solution.
 
-Если хочется, можно развивать проект в сторону:
+That is exactly why it is a good candidate for:
 
-- более безопасной P2P-мессенджер-архитектуры;
-- живой CLI/GUI и панели статуса;
-- лучшей синхронизации контактов и сообщений;
-- более понятного API и расширяемых модулей.
+- code cleanup,
+- protocol improvements,
+- architecture refactors,
+- better security design,
+- more polished UI and stronger developer tooling.
 
 ---
 
 ## Contributing
 
-В проекте всё ещё много пространства для улучшений, и любые практические идеи очень приветствуются. Подробнее — в [CONTRIBUTING.md](CONTRIBUTING.md).
+This project still has plenty of room for improvement, and practical ideas, bug fixes, and architectural proposals are always welcome.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 <p align="center">
-  <img src="https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif" width="700" alt="Collaboration" />
+  <img src="https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif" width="700" alt="Open collaboration" />
 </p>
 
 ---
