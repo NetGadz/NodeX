@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=80" width="920" alt="Distributed systems" />
+  <img src="https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=1400&q=80" width="920" alt="P2P network infrastructure" />
 </p>
 
 NodeX is a decentralized messaging prototype built on top of a Kademlia DHT. The project is currently in an early stage of development: the core network logic, routing, peer discovery, distributed storage, and a desktop messenger prototype are already in place, but the architecture and feature set are still evolving.
@@ -76,11 +76,11 @@ This is not a finished commercial messenger. It is a hands-on distributed system
 ## Demo
 
 <p align="center">
-  <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1200&q=80" width="800" alt="Network technology" />
+  <img src="https://images.unsplash.com/photo-1515879218367-8466d910aaa4?auto=format&fit=crop&w=1200&q=80" width="800" alt="Developer coding on network project" />
 </p>
 
 <p align="center">
-  <img src="https://images.unsplash.com/photo-1526379095098-d400fd0bf935?auto=format&fit=crop&w=1200&q=80" width="820" alt="Developer workspace and security" />
+  <img src="https://images.unsplash.com/photo-1526379095098-d400fd0bf935?auto=format&fit=crop&w=1200&q=80" width="820" alt="Secure distributed systems workspace" />
 </p>
 
 ---
@@ -241,7 +241,7 @@ This project still has plenty of room for improvement, and practical ideas, bug 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 <p align="center">
-  <img src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1100&q=80" width="700" alt="Team collaboration" />
+  <img src="https://images.unsplash.com/photo-1563013544-824ae1b704d3?auto=format&fit=crop&w=1100&q=80" width="700" alt="Cyber security and distributed systems" />
 </p>
 
 ---
