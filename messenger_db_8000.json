@@ -1,0 +1,93 @@
+{
+  "user_seed": [
+    126,
+    206,
+    166,
+    67,
+    228,
+    70,
+    132,
+    54,
+    44,
+    12,
+    136,
+    207,
+    166,
+    200,
+    195,
+    5,
+    62,
+    172,
+    116,
+    75,
+    54,
+    71,
+    4,
+    248,
+    245,
+    188,
+    112,
+    231,
+    3,
+    98,
+    55,
+    191
+  ],
+  "display_name": "Alice",
+  "contacts": {
+    "1f37e0bfd7d6f71fe2427c35f1dc30bc78170420": {
+      "user_id_hex": "1f37e0bfd7d6f71fe2427c35f1dc30bc78170420",
+      "name": "Bob",
+      "ed25519_pub_hex": "c368876d05aad4b50359965a0ce621d238711666d9fc27f178e50124b5a9f1c0",
+      "x25519_pub_hex": "bab9cde6113ce9b1f542c94efff35699bc410c3126d2877ed55703c715988738",
+      "last_seen_addr": "127.0.0.1:8001"
+    }
+  },
+  "messages": [
+    {
+      "id": "1789504399_1f37e0bfd7d6f71fe2427c35f1dc30bc78170420",
+      "sender_id_hex": "1f37e0bfd7d6f71fe2427c35f1dc30bc78170420",
+      "recipient_id_hex": "87bdd166404d7617486a8f67eea39ae8814c90eb",
+      "text": "Привет",
+      "timestamp": 1789504399,
+      "incoming": true,
+      "delivered": true
+    },
+    {
+      "id": "1789504743_2484475214",
+      "sender_id_hex": "87bdd166404d7617486a8f67eea39ae8814c90eb",
+      "recipient_id_hex": "1f37e0bfd7d6f71fe2427c35f1dc30bc78170420",
+      "text": "Привет",
+      "timestamp": 1789504743,
+      "incoming": false,
+      "delivered": true
+    },
+    {
+      "id": "1789504749_2254189548",
+      "sender_id_hex": "87bdd166404d7617486a8f67eea39ae8814c90eb",
+      "recipient_id_hex": "1f37e0bfd7d6f71fe2427c35f1dc30bc78170420",
+      "text": "хахаха",
+      "timestamp": 1789504749,
+      "incoming": false,
+      "delivered": true
+    },
+    {
+      "id": "1789504754_579870841",
+      "sender_id_hex": "87bdd166404d7617486a8f67eea39ae8814c90eb",
+      "recipient_id_hex": "1f37e0bfd7d6f71fe2427c35f1dc30bc78170420",
+      "text": "как дела",
+      "timestamp": 1789504754,
+      "incoming": false,
+      "delivered": true
+    },
+    {
+      "id": "1789504759_3849708763",
+      "sender_id_hex": "87bdd166404d7617486a8f67eea39ae8814c90eb",
+      "recipient_id_hex": "1f37e0bfd7d6f71fe2427c35f1dc30bc78170420",
+      "text": "а",
+      "timestamp": 1789504759,
+      "incoming": false,
+      "delivered": true
+    }
+  ]
+}

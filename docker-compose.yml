@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  node-bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kademlia-bootstrap
+    ports:
+      - "8001:8001/udp"
+    command: ["--ip", "0.0.0.0", "--port", "8001", "--state-file", "state_bootstrap.json"]
+    networks:
+      dht-network:
+        ipv4_address: 172.28.0.2
+
+  node-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kademlia-node-2
+    ports:
+      - "8002:8002/udp"
+    command: ["--ip", "0.0.0.0", "--port", "8002", "--bootstrap", "172.28.0.2:8001", "--state-file", "state_node2.json"]
+    depends_on:
+      - node-bootstrap
+    networks:
+      dht-network:
+        ipv4_address: 172.28.0.3
+
+  node-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kademlia-node-3
+    ports:
+      - "8003:8003/udp"
+    command: ["--ip", "0.0.0.0", "--port", "8003", "--bootstrap", "172.28.0.2:8001", "--state-file", "state_node3.json"]
+    depends_on:
+      - node-bootstrap
+    networks:
+      dht-network:
+        ipv4_address: 172.28.0.4
+
+  node-4:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kademlia-node-4
+    ports:
+      - "8004:8004/udp"
+    command: ["--ip", "0.0.0.0", "--port", "8004", "--bootstrap", "172.28.0.3:8002", "--state-file", "state_node4.json"]
+    depends_on:
+      - node-2
+    networks:
+      dht-network:
+        ipv4_address: 172.28.0.5
+
+networks:
+  dht-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
