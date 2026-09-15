@@ -2,127 +2,32 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Rust-1.74%2B-orange?logo=rust" alt="Rust" />
+  <img src="https://img.shields.io/badge/core-C%20FFI-blue?logo=c" alt="C FFI" />
   <img src="https://img.shields.io/badge/status-early%20prototype-yellow" alt="Status" />
-  <img src="https://img.shields.io/badge/P2P-E2EE-blue" alt="P2P E2EE" />
+  <img src="https://img.shields.io/badge/P2P-E2EE-blueviolet" alt="P2P E2EE" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT" />
 </p>
 
 <p align="center">
-  <img src="https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=1400&q=80" width="920" alt="P2P network infrastructure" />
+  <b>NodeX</b> is a decentralized messenger prototype built on a from-scratch Kademlia DHT implementation —
+  no central server, no relay infrastructure, just nodes finding each other by XOR distance.
 </p>
 
-NodeX is a decentralized messaging prototype built on top of a Kademlia DHT. The project is currently in an early stage of development: the core network logic, routing, peer discovery, distributed storage, and a desktop messenger prototype are already in place, but the architecture and feature set are still evolving.
-
-This project is meant as a practical learning platform and a strong foundation for building a real peer-to-peer messaging system in Rust.
-
-> Status: early prototype / pre-alpha
->
-> The repo is intentionally open for experimentation, refactoring, improvements, and contributions.
-
----
-
-## Why this project
-
-This is not a finished commercial messenger. It is a hands-on distributed systems project focused on:
-
-- learning Kademlia DHT mechanics;
-- building resilient peer-to-peer networking in Rust;
-- experimenting with encrypted messaging flows;
-- testing distributed message storage and offline delivery patterns;
-- creating a clean foundation for future UI and protocol extensions.
-
----
-
-## Highlights
-
-- 🌐 Decentralized P2P routing with Kademlia-style node lookup
-- 🔐 Encrypted identity and messaging model
-- 💬 Local contacts and chat history persistence
-- 📦 DHT-backed mailbox flow for offline recipients
-- 🧠 Routing table, peer discovery, and distributed storage
-- 🖥️ Native desktop UI built with egui
-- 🧪 Open for further experimentation and PRs
-
----
-
-## What is already implemented
-
-### Network layer
-
-- `KademliaNode` with XOR-based routing behavior
-- bucketed routing table and peer tracking
-- iterative lookup for nodes and values
-- UDP networking with Tokio
-- retry and timeout handling for RPC calls
-
-### Messenger layer
-
-- persistent contact database
-- local message storage
-- E2EE envelope creation and decryption
-- peer discovery via presence records in DHT
-- mailbox-style message relay for offline peers
-- GUI with user card, contacts, and chat panel
-
-### Storage and observability
-
-- key-value storage across network nodes
-- basic metrics for traffic and RPC flow
-- logging of network events and node state
-- persistence of identity and local data
-
----
-
-## Demo
-
+<!-- Рекомендую сюда вставить свой реальный скриншот GUI вместо стокового фото -->
 <p align="center">
-  <img src="https://images.unsplash.com/photo-1515879218367-8466d910aaa4?auto=format&fit=crop&w=1200&q=80" width="800" alt="Developer coding on network project" />
-</p>
-
-<p align="center">
-  <img src="https://images.unsplash.com/photo-1526379095098-d400fd0bf935?auto=format&fit=crop&w=1200&q=80" width="820" alt="Secure distributed systems workspace" />
+  <img src="docs/screenshot-gui.png" width="900" alt="NodeX desktop client" />
 </p>
 
 ---
 
-## Quick start
+## What this is (and isn't)
 
-### 1. Build the project
+NodeX is a **research / learning project**, not a production messenger. The goal is to build and understand
+a real peer-to-peer stack end to end: routing, peer discovery, distributed storage, and encrypted delivery —
+without leaning on libp2p or an existing DHT crate.
 
-```bash
-cargo build
-```
-
-### 2. Start first node
-
-```bash
-cargo run -- --name "Alice" --port 8000
-```
-
-### 3. Start second node with bootstrap
-
-```bash
-cargo run -- --name "Bob" --port 8001 --bootstrap 127.0.0.1:8000
-```
-
-### 4. Open the desktop app
-
-The app launches a native Rust GUI with:
-
-- user identity card
-- contact list
-- chat panel
-- network state information
-
----
-
-## Example flow
-
-```text
-Alice -> Bob: hello from the P2P network
-Bob -> Alice: encrypted reply delivered through DHT mailbox
-Alice -> peers: discover route and update network state
-```
+> **Status: pre-alpha.** Core networking and messenger logic exist and compile; multi-node message delivery
+> across a live network is the current validation milestone (see [Verified so far](#verified-so-far)).
 
 ---
 
@@ -130,47 +35,91 @@ Alice -> peers: discover route and update network state
 
 ```text
 ┌──────────────────────────────────────────────┐
-│                 GUI / Desktop                 │
-│   contacts • chat • node info • status       │
-└──────────────────────┬───────────────────────┘
-                       │
-┌──────────────────────▼───────────────────────┐
-│                 KadMessenger                  │
-│  identity • presence • encrypted messages    │
-│  local DB • contact tracking • inbox         │
-└──────────────────────┬───────────────────────┘
-                       │
-┌──────────────────────▼───────────────────────┐
-│                  KademliaNode                 │
-│ routing table • lookup • UDP networking      │
-│ storage • replication • RPC flow             │
-└──────────────────────┬───────────────────────┘
-                       │
-┌──────────────────────▼───────────────────────┐
-│                    C FFI                     │
-│ hashing • serialization • verification       │
-└──────────────────────────────────────────────┘
+│                 Desktop GUI (egui)            │
+│   identity card · contacts · chat · status    │
+└──────────────────────┬────────────────────────┘
+                        │
+┌──────────────────────▼────────────────────────┐
+│                  KadMessenger                  │
+│  E2EE identity · presence records · mailbox    │
+│  contact DB · local message history            │
+└──────────────────────┬────────────────────────┘
+                        │
+┌──────────────────────▼────────────────────────┐
+│                  KademliaNode                  │
+│  k-bucket routing table · iterative lookup     │
+│  UDP transport (Tokio) · RPC retry/timeout     │
+└──────────────────────┬────────────────────────┘
+                        │
+┌──────────────────────▼────────────────────────┐
+│                     C core (FFI)               │
+│   message serialization · node ID hashing      │
+└─────────────────────────────────────────────────┘
 ```
+
+Two identities are deliberately separate:
+
+| Layer | Purpose | Lifetime |
+|---|---|---|
+| **Transport Node ID** | Position in the Kademlia routing table (XOR distance) | Can rotate per session/device |
+| **User E2EE Identity** | Cryptographic identity for encrypted messaging | Persistent across sessions |
 
 ---
 
-## Roadmap
+## Implemented
 
-### Current stage
+**Network layer**
+- XOR-metric routing table with k-buckets
+- Iterative `FIND_NODE` / `FIND_VALUE` lookup
+- UDP transport on Tokio, with RPC timeout and retry
+- Key/value storage with TTL, replicated across nodes
 
-- working prototype of network routing
-- basic messenger flow with persisted contacts and messages
-- DHT peer discovery and distributed data exchange
-- simple GUI for demo and debugging
+**Messenger layer**
+- Presence records published to the DHT for peer discovery
+- Mailbox-style relay for offline recipients
+- E2EE envelope creation and decryption
+- Persistent local contact and message database
 
-### Planned next steps
+**Core (C)**
+- Manual binary serialization for wire messages
+- Node ID hashing, isolated behind a small FFI boundary
 
-- [ ] improve message delivery and offline handling
-- [ ] refine E2EE and identity verification
-- [ ] improve contact management and user profiles
-- [ ] improve UI/UX and node status panels
-- [ ] add broader test coverage for edge cases and failures
-- [ ] clean up API boundaries and project structure
+---
+
+## Verified so far
+
+- [x] Single node starts, generates transport + identity IDs, binds UDP, publishes presence
+- [x] GUI renders identity, contacts panel, chat panel
+- [ ] **Two-node bootstrap**: routing table fills via `FIND_NODE` against a bootstrap peer
+- [ ] **Cross-node delivery**: message sent from node A is retrieved by node B via DHT mailbox
+- [ ] Behavior under partial node failure (replica survives when some holders go offline)
+
+The unchecked items are the actual point of the project and the current focus — everything above them
+is infrastructure in service of getting there.
+
+---
+
+## Quick start
+
+```bash
+cargo build
+```
+
+**Node 1 (bootstrap node):**
+```bash
+cargo run -- --name "Alice" --port 8000
+```
+
+**Node 2 (joins via Alice):**
+```bash
+cargo run -- --name "Bob" --port 8001 --bootstrap 127.0.0.1:8000
+```
+
+Each node logs both identifiers on startup:
+```text
+[IDENTITY] User Messenger E2EE ID:     87bdd166404d7617486a8f67eea39ae8814c90eb
+[IDENTITY] Kademlia Transport Node ID: ef9188c14d1e4747912b9f6c08da3ccf31fb07cf
+```
 
 ---
 
@@ -180,71 +129,44 @@ Alice -> peers: discover route and update network state
 .
 ├── Cargo.toml
 ├── build.rs
-├── Dockerfile
-├── docker-compose.yml
-├── config.example.json
-├── core/
-│   ├── hash.c
-│   ├── hash.h
-│   ├── messenger_core.c
-│   ├── messenger_core.h
-│   ├── serialize.c
-│   └── serialize.h
+├── Dockerfile / docker-compose.yml
+├── core/                      # C — hashing, wire serialization
+│   ├── hash.c / hash.h
+│   ├── messenger_core.c / .h
+│   └── serialize.c / .h
 ├── src/
-│   ├── config.rs
-│   ├── crypto.rs
-│   ├── db.rs
-│   ├── gui.rs
-│   ├── lib.rs
-│   ├── lookup.rs
-│   ├── main.rs
-│   ├── messenger.rs
-│   ├── metrics.rs
-│   ├── node.rs
-│   ├── rpc.rs
-│   ├── state.rs
-│   ├── storage.rs
-│   └── ...
+│   ├── node.rs                # NodeId, XOR distance, k-buckets, routing table
+│   ├── rpc.rs                 # RPC message types
+│   ├── lookup.rs              # Iterative FIND_NODE / FIND_VALUE
+│   ├── storage.rs             # DHT key/value store, TTL, replication
+│   ├── messenger.rs           # Presence, mailbox, contact flow
+│   ├── crypto.rs              # E2EE envelope handling
+│   ├── db.rs                  # Local persistence
+│   ├── gui.rs                 # egui desktop client
+│   ├── config.rs / metrics.rs / state.rs
+│   └── main.rs
 ├── tests/
 │   ├── integration_test.rs
 │   └── messenger_test.rs
-├── scripts/
-│   ├── demo.ps1
-│   └── demo.sh
-├── readme.md
-├── CONTRIBUTING.md
-├── LICENSE
-├── .gitignore
-└── messenger_db_*.json
+└── scripts/demo.sh / demo.ps1
 ```
 
 ---
 
-## Important note
+## Roadmap
 
-This project is an early-stage distributed messaging prototype. It already demonstrates the core idea, but it is still evolving and should be treated as a research/learning project rather than a production-ready solution.
-
-That is exactly why it is a good candidate for:
-
-- code cleanup,
-- protocol improvements,
-- architecture refactors,
-- better security design,
-- more polished UI and stronger developer tooling.
+- [ ] Confirm end-to-end delivery across a live multi-node network
+- [ ] Reduce mailbox polling to event-driven / backoff instead of tight-loop retry
+- [ ] NAT traversal for nodes outside a local network
+- [ ] Identity verification (key fingerprints, out-of-band trust)
+- [ ] Broader test coverage for node churn and partial failures
+- [ ] Clean up FFI boundary and public API surface
 
 ---
 
 ## Contributing
 
-This project still has plenty of room for improvement, and practical ideas, bug fixes, and architectural proposals are always welcome.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
-
-<p align="center">
-  <img src="https://images.unsplash.com/photo-1563013544-824ae1b704d3?auto=format&fit=crop&w=1100&q=80" width="700" alt="Cyber security and distributed systems" />
-</p>
-
----
+Issues, protocol critique, and PRs are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
