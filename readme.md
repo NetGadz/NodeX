@@ -13,10 +13,18 @@
   no central server, no relay infrastructure, just nodes finding each other by XOR distance.
 </p>
 
-<!-- Рекомендую сюда вставить свой реальный скриншот GUI вместо стокового фото -->
-<p align="center">
-  <img src="docs/screenshot-gui.png" width="900" alt="NodeX desktop client" />
-</p>
+```mermaid
+graph TD
+    A((Alice)) --- B((Bob))
+    A --- C((Node C))
+    B --- D((Node D))
+    C --- D
+    C --- E((Node E))
+    D --- F((Node F))
+    E --- F
+    A --- F
+```
+<p align="center"><i>No central server — every node routes for the network and holds a slice of the DHT.</i></p>
 
 ---
 
@@ -120,6 +128,17 @@ Each node logs both identifiers on startup:
 [IDENTITY] User Messenger E2EE ID:     87bdd166404d7617486a8f67eea39ae8814c90eb
 [IDENTITY] Kademlia Transport Node ID: ef9188c14d1e4747912b9f6c08da3ccf31fb07cf
 ```
+
+---
+
+## Demo
+
+```text
+Alice (:8000)  --publish presence-->  DHT
+Bob   (:8001)  --bootstrap join--->   Alice
+Bob   --FIND_VALUE mailbox_Alice-->   DHT  --> message delivered
+```
+<!-- Замени на docs/demo.gif с записью реального запуска, когда закоммитишь в репозиторий -->
 
 ---
 
