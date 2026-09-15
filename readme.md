@@ -13,6 +13,10 @@
   no central server, no relay infrastructure, just nodes finding each other by XOR distance.
 </p>
 
+<p align="center">
+  <img src="https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif" width="920" alt="Network and data flow" />
+</p>
+
 ```mermaid
 graph TD
     A((Alice)) --- B((Bob))
@@ -138,6 +142,11 @@ Alice (:8000)  --publish presence-->  DHT
 Bob   (:8001)  --bootstrap join--->   Alice
 Bob   --FIND_VALUE mailbox_Alice-->   DHT  --> message delivered
 ```
+
+<p align="center">
+  <img src="https://media.giphy.com/media/26BROrSHl1D5n5gK4/giphy.gif" width="800" alt="Distributed systems animation" />
+</p>
+
 <!-- Замени на docs/demo.gif с записью реального запуска, когда закоммитишь в репозиторий -->
 
 ---
