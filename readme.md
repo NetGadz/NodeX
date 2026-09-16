@@ -13,6 +13,10 @@
 </p>
 
 <p align="center">
+  <b>Latest tag: v1.0.0</b>
+</p>
+
+<p align="center">
   <b>NodeX</b> is a native Rust desktop messenger with E2EE, direct UDP delivery, and a Kademlia DHT mailbox relay.
 </p>
 
@@ -135,6 +139,13 @@ The unchecked items are deployment work, not a claim that the local network prot
 
 ## Quick start
 
+### Download the Windows release
+
+The current release tag is [v1.0.0](https://github.com/NetGadz/NodeX/releases/tag/v1.0.0).
+The Windows package contains the optimized `nodex.exe`, logo, default configuration, and a copy of this README.
+
+For source builds, use the commands below.
+
 ```bash
 cargo test --workspace
 cargo run -p nodex-gui
@@ -151,6 +162,21 @@ For a clean Windows build:
 ```
 
 The packaged artifacts are written to `dist/` by the release script.
+
+To build the complete Windows ZIP package:
+
+```powershell
+.\scripts\package-windows.ps1 -Version "1.0.0"
+```
+
+The local output is:
+
+```text
+dist/NodeX-v1.0.0-windows-x64.zip
+```
+
+The release tag is published in GitHub. Uploading binary assets to the GitHub Release page is a separate
+distribution step; the repository does not commit generated binaries or local user databases.
 
 Each node logs both identifiers on startup:
 ```text
@@ -207,7 +233,8 @@ Bob   --FIND_VALUE mailbox_Alice-->   DHT  --> message delivered
 - [ ] NAT traversal for nodes outside a local network
 - [ ] Complete signed delivery/read receipt protocol
 - [ ] Identity verification with out-of-band trust
-- [ ] Windows installer and signed release artifacts
+- [x] Windows release build and `v1.0.0` tag
+- [ ] Windows installer asset and signed release artifacts
 - [ ] Broader tests for node churn and partial failures
 
 ---
