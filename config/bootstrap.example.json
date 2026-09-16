@@ -1,0 +1,17 @@
+{
+  "bootstrap_nodes": [
+    {
+      "node_id": "0000000000000000000000000000000000000001",
+      "address": "127.0.0.1:8000",
+      "region": "local-dev"
+    },
+    {
+      "node_id": "0000000000000000000000000000000000000002",
+      "address": "127.0.0.1:8001",
+      "region": "local-dev"
+    }
+  ],
+  "min_connected_seeds": 1,
+  "retry_interval_secs": 5,
+  "max_retries": 10
+}

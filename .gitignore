@@ -4,3 +4,8 @@ Cargo.lock
 .vscode/
 .DS_Store
 *.log
+/dist/
+/messenger_db_*.json
+/node_state.json
+/data/*
+!/data/.gitkeep

@@ -1,20 +1,23 @@
-# NodeX — P2P Messenger on Kademlia DHT
+# NodeX — P2P E2EE Messenger on Kademlia DHT
+
+<p align="center">
+  <img src="nodex-gui/assets/logo.png" width="128" alt="NodeX logo" />
+</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Rust-1.74%2B-orange?logo=rust" alt="Rust" />
   <img src="https://img.shields.io/badge/core-C%20FFI-blue?logo=c" alt="C FFI" />
-  <img src="https://img.shields.io/badge/status-early%20prototype-yellow" alt="Status" />
+  <img src="https://img.shields.io/badge/status-active%20MVP-yellow" alt="Status" />
   <img src="https://img.shields.io/badge/P2P-E2EE-blueviolet" alt="P2P E2EE" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT" />
 </p>
 
 <p align="center">
-  <b>NodeX</b> is a decentralized messenger prototype built on a from-scratch Kademlia DHT implementation —
-  no central server, no relay infrastructure, just nodes finding each other by XOR distance.
+  <b>NodeX</b> is a native Rust desktop messenger with E2EE, direct UDP delivery, and a Kademlia DHT mailbox relay.
 </p>
 
 <p align="center">
-  <img src="https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif" width="920" alt="Network and data flow" />
+  <img src="https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif" width="760" alt="Distributed network animation" />
 </p>
 
 ```mermaid
@@ -32,14 +35,25 @@ graph TD
 
 ---
 
-## What this is (and isn't)
+## What NodeX does
 
-NodeX is a **research / learning project**, not a production messenger. The goal is to build and understand
-a real peer-to-peer stack end to end: routing, peer discovery, distributed storage, and encrypted delivery —
-without leaning on libp2p or an existing DHT crate.
+NodeX is a research-driven MVP for a native peer-to-peer messenger. It runs as a desktop application, creates a
+persistent encrypted identity, discovers peers through Kademlia, and sends encrypted messages directly or through
+a distributed mailbox when the recipient is offline.
 
-> **Status: pre-alpha.** Core networking and messenger logic exist and compile; multi-node message delivery
-> across a live network is the current validation milestone (see [Verified so far](#verified-so-far)).
+> This repository is still experimental. Local multi-node scenarios are covered by tests, but public-internet
+> deployment still needs production bootstrap/relay infrastructure and NAT traversal.
+
+### Highlights
+
+- Native Windows desktop GUI built with Rust and egui.
+- 12-word mnemonic account creation and restoration.
+- Ed25519 identity signatures and X25519 message encryption.
+- Direct UDP `STORE` delivery with `STORE_ACK` confirmation.
+- DHT store-and-forward mailbox for offline recipients.
+- Automatic local port selection and local bootstrap discovery.
+- Contacts, unread indicators, message status ticks, and image attachments.
+- Encrypted local messenger database and persistent chat history.
 
 ---
 
@@ -85,12 +99,17 @@ Two identities are deliberately separate:
 - Iterative `FIND_NODE` / `FIND_VALUE` lookup
 - UDP transport on Tokio, with RPC timeout and retry
 - Key/value storage with TTL, replicated across nodes
+- Automatic port fallback when the preferred port is busy
+- Bootstrap, peer tracking, reconnect, and health modules
 
 **Messenger layer**
 - Presence records published to the DHT for peer discovery
 - Mailbox-style relay for offline recipients
 - E2EE envelope creation and decryption
 - Persistent local contact and message database
+- Mnemonic identity restore
+- Delivery and read-status building blocks
+- Contact trust, profile, attachment, and blocklist modules
 
 **Core (C)**
 - Manual binary serialization for wire messages
@@ -98,34 +117,40 @@ Two identities are deliberately separate:
 
 ---
 
-## Verified so far
+## Verification status
 
 - [x] Single node starts, generates transport + identity IDs, binds UDP, publishes presence
 - [x] GUI renders identity, contacts panel, chat panel
-- [ ] **Two-node bootstrap**: routing table fills via `FIND_NODE` against a bootstrap peer
-- [ ] **Cross-node delivery**: message sent from node A is retrieved by node B via DHT mailbox
-- [ ] Behavior under partial node failure (replica survives when some holders go offline)
+- [x] Two-node bootstrap and automatic local port fallback
+- [x] Direct UDP `STORE` with `STORE_ACK`
+- [x] DHT mailbox store-and-forward tests
+- [x] Mnemonic, identity, trust, attachment, and receipt tests
+- [x] Workspace test suite: 44 discovered tests pass locally
+- [ ] Public-internet delivery across NAT without an external relay
+- [ ] Production bootstrap nodes and signed release distribution
 
-The unchecked items are the actual point of the project and the current focus — everything above them
-is infrastructure in service of getting there.
+The unchecked items are deployment work, not a claim that the local network prototype is production-ready.
 
 ---
 
 ## Quick start
 
 ```bash
-cargo build
+cargo test --workspace
+cargo run -p nodex-gui
 ```
 
-**Node 1 (bootstrap node):**
-```bash
-cargo run -- --name "Alice" --port 8000
+Run `cargo run -p nodex-gui` in a second terminal to start another local instance.
+The application selects the next available local UDP port and attempts local bootstrap discovery automatically.
+No `--port` or `--bootstrap` arguments are required for the local demo.
+
+For a clean Windows build:
+
+```powershell
+.\scripts\build-release.ps1
 ```
 
-**Node 2 (joins via Alice):**
-```bash
-cargo run -- --name "Bob" --port 8001 --bootstrap 127.0.0.1:8000
-```
+The packaged artifacts are written to `dist/` by the release script.
 
 Each node logs both identifiers on startup:
 ```text
@@ -135,7 +160,7 @@ Each node logs both identifiers on startup:
 
 ---
 
-## Demo
+## Demo flow
 
 ```text
 Alice (:8000)  --publish presence-->  DHT
@@ -144,10 +169,13 @@ Bob   --FIND_VALUE mailbox_Alice-->   DHT  --> message delivered
 ```
 
 <p align="center">
-  <img src="https://media.giphy.com/media/26BROrSHl1D5n5gK4/giphy.gif" width="800" alt="Distributed systems animation" />
+  <img src="https://media.giphy.com/media/26BROrSHl1D5n5gK4/giphy.gif" width="720" alt="P2P message delivery animation" />
 </p>
 
-<!-- Замени на docs/demo.gif с записью реального запуска, когда закоммитишь в репозиторий -->
+1. Open the app and create or restore a 12-word identity.
+2. Start a second instance; it selects a free port automatically.
+3. Add a contact by the 40-character User ID.
+4. Send text or an image directly, with DHT mailbox fallback when the peer is offline.
 
 ---
 
@@ -156,39 +184,31 @@ Bob   --FIND_VALUE mailbox_Alice-->   DHT  --> message delivered
 ```text
 .
 ├── Cargo.toml
-├── build.rs
-├── Dockerfile / docker-compose.yml
-├── core/                      # C — hashing, wire serialization
-│   ├── hash.c / hash.h
-│   ├── messenger_core.c / .h
-│   └── serialize.c / .h
-├── src/
-│   ├── node.rs                # NodeId, XOR distance, k-buckets, routing table
-│   ├── rpc.rs                 # RPC message types
-│   ├── lookup.rs              # Iterative FIND_NODE / FIND_VALUE
-│   ├── storage.rs             # DHT key/value store, TTL, replication
-│   ├── messenger.rs           # Presence, mailbox, contact flow
-│   ├── crypto.rs              # E2EE envelope handling
-│   ├── db.rs                  # Local persistence
-│   ├── gui.rs                 # egui desktop client
-│   ├── config.rs / metrics.rs / state.rs
-│   └── main.rs
-├── tests/
-│   ├── integration_test.rs
-│   └── messenger_test.rs
-└── scripts/demo.sh / demo.ps1
+├── core-ffi/                  # C wire, hashing, and mnemonic boundary
+├── nodex-kademlia/            # Routing, RPC, DHT storage, bootstrap, peers
+├── nodex-messenger/           # Identity, E2EE, contacts, mailbox, receipts
+├── nodex-gui/                 # Native egui desktop application and logo
+├── nodex-cli/                 # Diagnostics and interactive CLI
+├── config/                    # Development and bootstrap configuration
+├── docs/                      # Architecture, security, protocol, release docs
+├── deploy/                    # Windows, Linux, and macOS packaging layouts
+├── data/                      # Development-only data placeholder
+├── dist/                      # Local release output, ignored from source control
+└── scripts/                   # Demo, testing, cleanup, and release scripts
 ```
 
 ---
 
 ## Roadmap
 
-- [ ] Confirm end-to-end delivery across a live multi-node network
-- [ ] Reduce mailbox polling to event-driven / backoff instead of tight-loop retry
+- [x] Confirm local end-to-end delivery across multiple nodes
+- [x] Add bounded image attachment delivery
+- [ ] Add production bootstrap and relay nodes
 - [ ] NAT traversal for nodes outside a local network
-- [ ] Identity verification (key fingerprints, out-of-band trust)
-- [ ] Broader test coverage for node churn and partial failures
-- [ ] Clean up FFI boundary and public API surface
+- [ ] Complete signed delivery/read receipt protocol
+- [ ] Identity verification with out-of-band trust
+- [ ] Windows installer and signed release artifacts
+- [ ] Broader tests for node churn and partial failures
 
 ---
 
