@@ -141,7 +141,7 @@ The unchecked items are deployment work, not a claim that the local network prot
 
 ### Download the Windows release
 
-The current release tag is [v1.0.0](https://github.com/NetGadz/NodeX/releases/tag/v1.0.0).
+The current release tag is [v1.0.0](https://github.com/NetGadz/NodeX/tree/v1.0.0).
 The Windows package contains the optimized `nodex.exe`, logo, default configuration, and a copy of this README.
 
 For source builds, use the commands below.
@@ -175,8 +175,8 @@ The local output is:
 dist/NodeX-v1.0.0-windows-x64.zip
 ```
 
-The release tag is published in GitHub. Uploading binary assets to the GitHub Release page is a separate
-distribution step; the repository does not commit generated binaries or local user databases.
+The release tag is published in GitHub. The generated ZIP is kept out of source control; it can be attached to a
+GitHub Release as a binary asset. Local user databases are never part of the release.
 
 Each node logs both identifiers on startup:
 ```text
