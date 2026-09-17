@@ -1,11 +1,26 @@
+# Rust build artifacts
 target/
-Cargo.lock
-.idea/
-.vscode/
-.DS_Store
+**/*.rs.bk
+*.pdb
+
+# Local NodeX runtime databases and state files
+*.json.bak
+messenger_db_*.json
+nodex_*state*.json
 *.log
-/dist/
-/messenger_db_*.json
-/node_state.json
+
+# Project data directory
 /data/*
 !/data/.gitkeep
+!/data/README.md
+
+# Distribution bundles
+/dist/
+
+# IDE and Editor configurations
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

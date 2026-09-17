@@ -152,9 +152,11 @@ mod tests {
 
     #[test]
     fn config_serialization_and_parsing() {
-        let mut cfg = NodeConfig::default();
-        cfg.port = 9050;
-        cfg.bootstrap = vec!["127.0.0.1:8001".parse().unwrap()];
+        let cfg = NodeConfig {
+            port: 9050,
+            bootstrap: vec!["127.0.0.1:8001".parse().unwrap()],
+            ..Default::default()
+        };
 
         let json = cfg.to_json_string();
         let parsed = NodeConfig::from_json_str(&json).unwrap();

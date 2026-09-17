@@ -9,8 +9,15 @@ use tokio::sync::{oneshot, Mutex, RwLock};
 
 use core_ffi::*;
 
+use crate::chunking::{ChunkAssembler, UdpChunk};
 use crate::metrics::MetricsTracker;
 use crate::node::{Contact, NodeId, RoutingTable, UpdateResult};
+
+/// Messages larger than this threshold (in encoded bytes) are automatically
+/// fragmented into UDP chunks to prevent IP-level fragmentation on WAN.
+/// Standard Internet MTU is 1500; after IP (20) + UDP (8) headers = 1472 usable.
+/// We use 1100 as a conservative threshold to allow for serialization overhead.
+const CHUNK_THRESHOLD: usize = 1100;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RpcPayload {
@@ -338,17 +345,41 @@ impl NetworkManager {
 
     pub async fn send_message(&self, target: SocketAddr, msg: &RpcMessage) -> Result<(), String> {
         let bytes = msg.encode()?;
-        self.metrics.inc_bytes_sent(bytes.len());
         let msg_type = match msg.to_c_message() {
             Ok(c) => c.msg_type,
             Err(_) => 0,
         };
         self.metrics.inc_rpc_sent(msg_type);
 
-        self.socket
-            .send_to(&bytes, target)
-            .await
-            .map_err(|e| format!("[NET] Send failed to {}: {}", target, e))?;
+        if bytes.len() > CHUNK_THRESHOLD {
+            // Fragment into UDP chunks for WAN safety (prevent IP-level fragmentation)
+            let message_id: [u8; 16] = rand::random();
+            let chunks = UdpChunk::split_data(message_id, &bytes);
+            let chunk_count = chunks.len();
+            let mut total_wire_bytes = 0usize;
+            for chunk in &chunks {
+                let chunk_bytes = serde_json::to_vec(chunk)
+                    .map_err(|e| format!("Chunk serialization failed: {}", e))?;
+                total_wire_bytes += chunk_bytes.len();
+                self.socket
+                    .send_to(&chunk_bytes, target)
+                    .await
+                    .map_err(|e| format!("[NET] Chunk send failed to {}: {}", target, e))?;
+            }
+            self.metrics.inc_bytes_sent(total_wire_bytes);
+            println!(
+                "[NET] Sent {} bytes as {} chunks to {} (original {} bytes)",
+                total_wire_bytes, chunk_count, target, bytes.len()
+            );
+        } else {
+            // Direct send — fits in a single UDP datagram
+            self.metrics.inc_bytes_sent(bytes.len());
+            self.socket
+                .send_to(&bytes, target)
+                .await
+                .map_err(|e| format!("[NET] Send failed to {}: {}", target, e))?;
+        }
+
         Ok(())
     }
 
@@ -429,6 +460,7 @@ impl NetworkManager {
         let metrics = Arc::clone(&self.metrics);
 
         tokio::spawn(async move {
+            let mut chunk_assembler = ChunkAssembler::new(Duration::from_secs(30));
             let mut buf = vec![0u8; 65536];
             loop {
                 let (len, src_addr) = match socket.recv_from(&mut buf).await {
@@ -446,11 +478,41 @@ impl NetworkManager {
 
                 metrics.inc_bytes_received(len);
 
-                let msg = match RpcMessage::decode(&buf[..len]) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        eprintln!("[NET] Failed to decode packet from {}: {}", src_addr, e);
-                        continue;
+                // Chunk-aware decode: JSON chunks start with '{', binary RPC starts with 'KD'
+                let msg = if len > 0 && buf[0] == b'{' {
+                    // Attempt to parse as a UDP chunk (JSON-serialized)
+                    match serde_json::from_slice::<UdpChunk>(&buf[..len]) {
+                        Ok(chunk) => {
+                            match chunk_assembler.add_chunk(chunk) {
+                                Some(complete_bytes) => {
+                                    // All chunks received — decode reassembled RPC message
+                                    match RpcMessage::decode(&complete_bytes) {
+                                        Ok(m) => m,
+                                        Err(e) => {
+                                            eprintln!(
+                                                "[NET] Failed to decode reassembled chunked message from {}: {}",
+                                                src_addr, e
+                                            );
+                                            continue;
+                                        }
+                                    }
+                                }
+                                None => continue, // Waiting for more chunks
+                            }
+                        }
+                        Err(_) => {
+                            eprintln!("[NET] JSON-like packet from {} is not a valid chunk, dropping", src_addr);
+                            continue;
+                        }
+                    }
+                } else {
+                    // Standard binary RPC message (magic bytes 'KD')
+                    match RpcMessage::decode(&buf[..len]) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            eprintln!("[NET] Failed to decode packet from {}: {}", src_addr, e);
+                            continue;
+                        }
                     }
                 };
 

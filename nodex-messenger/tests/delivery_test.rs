@@ -4,14 +4,18 @@ use nodex_messenger::KadMessenger;
 
 #[tokio::test]
 async fn test_direct_udp_e2ee_message_delivery() {
-    let mut cfg1 = NodeConfig::default();
-    cfg1.port = 19900;
+    let cfg1 = NodeConfig {
+        port: 19900,
+        ..Default::default()
+    };
     let node1 = KademliaNode::start_with_config(cfg1).await.expect("Node 1");
     let alice = KadMessenger::start(node1.clone(), "test_db_alice.json".into(), "Alice".into()).await.expect("Alice");
 
-    let mut cfg2 = NodeConfig::default();
-    cfg2.port = 19901;
-    cfg2.bootstrap = vec![node1.network.local_addr];
+    let cfg2 = NodeConfig {
+        port: 19901,
+        bootstrap: vec![node1.network.local_addr],
+        ..Default::default()
+    };
     let node2 = KademliaNode::start_with_config(cfg2).await.expect("Node 2");
     let bob = KadMessenger::start(node2.clone(), "test_db_bob.json".into(), "Bob".into()).await.expect("Bob");
 

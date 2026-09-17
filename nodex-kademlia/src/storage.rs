@@ -59,6 +59,14 @@ impl Storage {
         None
     }
 
+    pub fn remove(&mut self, key: &NodeId) -> Option<Record> {
+        self.data.remove(key)
+    }
+
+    pub fn clear(&mut self) {
+        self.data.clear();
+    }
+
     pub fn cleanup_stale(&mut self) -> usize {
         let before = self.data.len();
         self.data.retain(|_, record| !record.is_expired());

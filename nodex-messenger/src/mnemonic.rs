@@ -8,11 +8,11 @@ impl MnemonicManager {
         let mut entropy = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut entropy);
         core_ffi::ffi_mnemonic_generate_12(&entropy)
-            .map_err(|e| MessengerError::MnemonicError(e))
+            .map_err(MessengerError::MnemonicError)
     }
 
     pub fn validate(phrase: &str) -> bool {
-        let words: Vec<&str> = phrase.trim().split_whitespace().collect();
+        let words: Vec<&str> = phrase.split_whitespace().collect();
         if words.len() != 12 {
             return false;
         }
@@ -24,6 +24,6 @@ impl MnemonicManager {
             return Err(MessengerError::MnemonicError("Invalid BIP-39 mnemonic phrase".into()));
         }
         core_ffi::ffi_mnemonic_to_seed(phrase.trim())
-            .map_err(|e| MessengerError::MnemonicError(e))
+            .map_err(MessengerError::MnemonicError)
     }
 }

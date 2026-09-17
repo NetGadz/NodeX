@@ -1,16 +1,23 @@
 pub mod bootstrap;
+pub mod chunking;
 pub mod config;
+pub mod endpoint;
 pub mod health;
+pub mod hole_punch;
 pub mod lookup;
 pub mod metrics;
+pub mod nat_type;
 pub mod network_error;
 pub mod node;
 pub mod peer_manager;
 pub mod port_manager;
 pub mod reconnect;
+pub mod relay_client;
 pub mod rpc;
 pub mod state;
 pub mod storage;
+pub mod stun;
+pub mod upnp;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -41,9 +48,11 @@ pub struct KademliaNode {
 
 impl KademliaNode {
     pub async fn start(bind_addr: SocketAddr) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let mut cfg = NodeConfig::default();
-        cfg.ip = bind_addr.ip().to_string();
-        cfg.port = bind_addr.port();
+        let cfg = NodeConfig {
+            ip: bind_addr.ip().to_string(),
+            port: bind_addr.port(),
+            ..Default::default()
+        };
         Self::start_with_config(cfg).await
     }
 

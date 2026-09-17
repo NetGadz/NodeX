@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -5,6 +6,24 @@ use crate::health::{HealthTracker, NodeHealthState};
 use crate::lookup::LookupEngine;
 use crate::node::{Contact, NodeId, RoutingTable};
 use crate::rpc::{NetworkManager, RpcPayload};
+
+pub const LAN_DISCOVERY_MAGIC: &[u8] = b"NODEX_LAN_DISCOVERY_V1";
+
+/// Signed list of fallback bootstrap nodes (e.g. from GitHub Raw or backup source).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SignedBootstrapList {
+    pub version: u32,
+    pub expires_at: u64,
+    pub nodes: Vec<String>,
+    pub signature_hex: String,
+}
+
+impl SignedBootstrapList {
+    /// Validates version and expiration timestamp against current time.
+    pub fn is_valid(&self, current_time: u64) -> bool {
+        !self.nodes.is_empty() && self.expires_at > current_time
+    }
+}
 
 pub struct BootstrapEngine;
 
@@ -66,6 +85,16 @@ impl BootstrapEngine {
         } else {
             health.set_state(NodeHealthState::Degraded);
             Err("All bootstrap nodes unreachable; operating in degraded standalone mode".into())
+        }
+    }
+
+    /// Broadcasts local discovery presence on LAN broadcast address.
+    pub async fn broadcast_lan_discovery(bound_port: u16) {
+        if let Ok(socket) = tokio::net::UdpSocket::bind("0.0.0.0:0").await {
+            let _ = socket.set_broadcast(true);
+            let mut payload = LAN_DISCOVERY_MAGIC.to_vec();
+            payload.extend_from_slice(&bound_port.to_be_bytes());
+            let _ = socket.send_to(&payload, "255.255.255.255:8000").await;
         }
     }
 }

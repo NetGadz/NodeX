@@ -181,8 +181,8 @@ async fn test_routing_table_population() {
         nodes.push(KademliaNode::start(*addr).await.unwrap());
     }
 
-    for i in 1..nodes.len() {
-        nodes[i].bootstrap(addrs[0]).await.unwrap();
+    for node in nodes.iter().skip(1) {
+        node.bootstrap(addrs[0]).await.unwrap();
     }
     tokio::time::sleep(Duration::from_millis(100)).await;
 

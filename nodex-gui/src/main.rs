@@ -1,3 +1,5 @@
+#![allow(float_literal_f32_fallback)]
+
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -6,7 +8,7 @@ use eframe::egui;
 
 use nodex_kademlia::config::NodeConfig;
 use nodex_kademlia::KademliaNode;
-use nodex_messenger::db::SavedContact;
+use nodex_messenger::db::{MessengerDb, SavedContact};
 use nodex_messenger::{KadMessenger, MessengerEvent};
 
 mod gui;
@@ -136,7 +138,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             dht_node_id: dht_node_id.clone(),
             display_name: saved_name,
             bio: saved_bio,
-            mnemonic: saved_mnemonic,
+            mnemonic: String::new(),
+            has_mnemonic: !saved_mnemonic.is_empty(),
             dht_peers: node.routing_table.read().await.total_contacts(),
             stored_keys: node.storage.read().await.len(),
         });
@@ -161,6 +164,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                     MessengerEvent::MessageReceived(msg) => {
                         let _ = ui_tx_event_forwarder.send(UiEvent::MessageSent(msg));
+                    }
+                    MessengerEvent::MessageDeleted { contact_id, message_ids } => {
+                        let _ = ui_tx_event_forwarder.send(UiEvent::MessagesDeleted { contact_id, message_ids });
                     }
                 }
             }
@@ -198,15 +204,23 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             tokio::select! {
                 Some(cmd) = cmd_rx.recv() => {
                     match cmd {
-                        AppCommand::SendMessage { recipient_id, text, image_base64 } => {
-                            match msg_worker.send_message(&recipient_id, &text, image_base64).await {
-                                Ok(saved) => {
-                                    let _ = ui_tx_worker.send(UiEvent::MessageSent(saved));
+                        AppCommand::SendMessage { local_id, recipient_id, text, image_base64 } => {
+                            let worker = Arc::clone(&msg_worker);
+                            let ui_tx_clone = ui_tx_worker.clone();
+                            tokio::spawn(async move {
+                                match worker.send_message(&recipient_id, &text, image_base64).await {
+                                    Ok(saved) => {
+                                        let _ = ui_tx_clone.send(UiEvent::MessageSent(saved));
+                                    }
+                                    Err(e) => {
+                                        let _ = ui_tx_clone.send(UiEvent::MessageFailed {
+                                            message_id: local_id,
+                                            reason: e.to_string(),
+                                        });
+                                        let _ = ui_tx_clone.send(UiEvent::StatusLog(format!("Send error: {}", e)));
+                                    }
                                 }
-                                Err(e) => {
-                                    let _ = ui_tx_worker.send(UiEvent::StatusLog(format!("Send error: {}", e)));
-                                }
-                            }
+                            });
                         }
                         AppCommand::AddContact { user_id, name } => {
                             match msg_worker.discover_peer(&user_id).await {
@@ -227,7 +241,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                     let mut db = msg_worker.db.write().await;
                                     let existing = db.contacts.get(&user_id).cloned();
                                     let final_name = if name.is_empty() {
-                                        existing.as_ref().map(|c| c.name.clone()).unwrap_or_else(|| format!("Peer_{}", &user_id[..6.min(user_id.len())]))
+                                        existing.as_ref().map(|c| c.name.clone()).unwrap_or_else(|| {
+                                             let p: String = user_id.chars().take(6).collect();
+                                             format!("Peer_{}", p)
+                                        })
                                     } else {
                                         name
                                     };
@@ -246,6 +263,24 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             let db = msg_worker.db.read().await;
                             let contacts: Vec<_> = db.contacts.values().cloned().collect();
                             let _ = ui_tx_worker.send(UiEvent::ContactsList(contacts));
+                        }
+                        AppCommand::CreateInvite => {
+                            if let Ok(invite_link) = msg_worker.create_invite_link(Some(7)).await {
+                                let _ = ui_tx_worker.send(UiEvent::InviteGenerated(invite_link));
+                            }
+                        }
+                        AppCommand::AddContactInvite(invite_str) => {
+                            match msg_worker.add_contact_by_invite(&invite_str).await {
+                                Ok(contact) => {
+                                    let db = msg_worker.db.read().await;
+                                    let contacts: Vec<_> = db.contacts.values().cloned().collect();
+                                    let _ = ui_tx_worker.send(UiEvent::ContactsList(contacts));
+                                    let _ = ui_tx_worker.send(UiEvent::StatusLog(format!("Добавлен контакт: {}", contact.name)));
+                                }
+                                Err(e) => {
+                                    let _ = ui_tx_worker.send(UiEvent::StatusLog(format!("Ошибка инвайта: {}", e)));
+                                }
+                            }
                         }
                         AppCommand::SelectContact(contact_id) => {
                             let db = msg_worker.db.read().await;
@@ -268,7 +303,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 dht_node_id: msg_worker.dht_node.node_id.to_string(),
                                 display_name,
                                 bio,
-                                mnemonic: msg_worker.get_mnemonic().await,
+                                mnemonic: String::new(),
+                                has_mnemonic: true,
                                 dht_peers: msg_worker.dht_node.routing_table.read().await.total_contacts(),
                                 stored_keys: msg_worker.dht_node.storage.read().await.len(),
                             });
@@ -276,13 +312,13 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         AppCommand::UpdateProfile { display_name, bio } => {
                             let _ = msg_worker.update_profile(display_name.clone(), bio.clone()).await;
                             let uid = msg_worker.user_id_hex().await;
-                            let mn = msg_worker.get_mnemonic().await;
                             let _ = ui_tx_worker.send(UiEvent::NodeInfo {
                                 user_id: uid,
                                 dht_node_id: msg_worker.dht_node.node_id.to_string(),
                                 display_name,
                                 bio,
-                                mnemonic: mn,
+                                mnemonic: String::new(),
+                                has_mnemonic: true,
                                 dht_peers: msg_worker.dht_node.routing_table.read().await.total_contacts(),
                                 stored_keys: msg_worker.dht_node.storage.read().await.len(),
                             });
@@ -298,31 +334,166 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 dht_node_id: msg_worker.dht_node.node_id.to_string(),
                                 display_name: name,
                                 bio,
-                                mnemonic: mn,
+                                mnemonic: String::new(),
+                                has_mnemonic: !mn.is_empty(),
                                 dht_peers: msg_worker.dht_node.routing_table.read().await.total_contacts(),
                                 stored_keys: msg_worker.dht_node.storage.read().await.len(),
                             });
+                        }
+                        AppCommand::RevealMnemonic => {
+                            let mn = msg_worker.get_mnemonic().await;
+                            let _ = ui_tx_worker.send(UiEvent::MnemonicRevealed(mn));
                         }
                         AppCommand::RefreshContacts => {
                             let db = msg_worker.db.read().await;
                             let contacts: Vec<_> = db.contacts.values().cloned().collect();
                             let _ = ui_tx_worker.send(UiEvent::ContactsList(contacts));
                         }
+                        AppCommand::DeleteMessage { message_id, contact_id, for_everyone } => {
+                            if for_everyone {
+                                let worker = Arc::clone(&msg_worker);
+                                let ui_tx_clone = ui_tx_worker.clone();
+                                let m_id = message_id.clone();
+                                let c_id = contact_id.clone();
+                                tokio::spawn(async move {
+                                    let _ = worker.delete_messages_for_everyone(&c_id, vec![m_id.clone()]).await;
+                                    let _ = ui_tx_clone.send(UiEvent::MessagesDeleted {
+                                        contact_id: c_id,
+                                        message_ids: vec![m_id],
+                                    });
+                                });
+                            } else {
+                                msg_worker.delete_message(&message_id).await;
+                                let _ = ui_tx_worker.send(UiEvent::MessagesDeleted {
+                                    contact_id,
+                                    message_ids: vec![message_id],
+                                });
+                            }
+                        }
+                        AppCommand::DeleteMessages { message_ids, contact_id, for_everyone } => {
+                            if for_everyone {
+                                let worker = Arc::clone(&msg_worker);
+                                let ui_tx_clone = ui_tx_worker.clone();
+                                let ids = message_ids.clone();
+                                let c_id = contact_id.clone();
+                                tokio::spawn(async move {
+                                    let _ = worker.delete_messages_for_everyone(&c_id, ids.clone()).await;
+                                    let _ = ui_tx_clone.send(UiEvent::MessagesDeleted {
+                                        contact_id: c_id,
+                                        message_ids: ids,
+                                    });
+                                });
+                            } else {
+                                msg_worker.delete_messages(&message_ids).await;
+                                let _ = ui_tx_worker.send(UiEvent::MessagesDeleted {
+                                    contact_id,
+                                    message_ids,
+                                });
+                            }
+                        }
+                        AppCommand::ClearChat(contact_id) => {
+                            msg_worker.clear_chat(&contact_id).await;
+                            let _ = ui_tx_worker.send(UiEvent::MessagesList {
+                                contact_id,
+                                messages: Vec::new(),
+                            });
+                        }
+                        AppCommand::DeleteContact(contact_id) => {
+                            msg_worker.delete_contact(&contact_id).await;
+                            let db = msg_worker.db.read().await;
+                            let contacts: Vec<_> = db.contacts.values().cloned().collect();
+                            let _ = ui_tx_worker.send(UiEvent::ContactsList(contacts));
+                        }
+                        AppCommand::RetryMessage { recipient_id, text, image_base64, .. } => {
+                            let worker = Arc::clone(&msg_worker);
+                            let ui_tx_clone = ui_tx_worker.clone();
+                            tokio::spawn(async move {
+                                match worker.send_message(&recipient_id, &text, image_base64).await {
+                                    Ok(saved) => {
+                                        let _ = ui_tx_clone.send(UiEvent::MessageSent(saved));
+                                    }
+                                    Err(e) => {
+                                        let _ = ui_tx_clone.send(UiEvent::StatusLog(format!("Retry error: {}", e)));
+                                    }
+                                }
+                            });
+                        }
+                        AppCommand::BlockContact(contact_id) => {
+                            msg_worker.block_contact(&contact_id).await;
+                            let p: String = contact_id.chars().take(6).collect();
+                            let _ = ui_tx_worker.send(UiEvent::StatusLog(format!("Контакт {} заблокирован", p)));
+                        }
+                        AppCommand::UnblockContact(contact_id) => {
+                            msg_worker.unblock_contact(&contact_id).await;
+                            let p: String = contact_id.chars().take(6).collect();
+                            let _ = ui_tx_worker.send(UiEvent::StatusLog(format!("Контакт {} разблокирован", p)));
+                        }
+                        AppCommand::Reconnect => {
+                            let _ = msg_worker.publish_presence().await;
+                            let _ = ui_tx_worker.send(UiEvent::StatusLog("Переподключение и публикация presence...".into()));
+                        }
+                        AppCommand::ToggleRelay { enabled } => {
+                            let _ = ui_tx_worker.send(UiEvent::StatusLog(format!("Режим Relay: {}", enabled)));
+                        }
+                        AppCommand::SetRelayTrafficLimit { megabytes_per_hour } => {
+                            let _ = ui_tx_worker.send(UiEvent::StatusLog(format!("Лимит трафика Relay: {} МБ/ч", megabytes_per_hour)));
+                        }
+                        AppCommand::SetRelayMaxSessions { sessions } => {
+                            let _ = ui_tx_worker.send(UiEvent::StatusLog(format!("Максимум сессий Relay: {}", sessions)));
+                        }
+                        AppCommand::TestConnection(target) => {
+                            let _ = ui_tx_worker.send(UiEvent::StatusLog(format!("Проверка соединения с {}...", target)));
+                        }
+                        AppCommand::ExportBackup { path, password } => {
+                            let db = msg_worker.db.read().await;
+                            match db.export_encrypted_backup(&path, &password) {
+                                Ok(_) => {
+                                    let _ = ui_tx_worker.send(UiEvent::StatusLog(format!("Зашифрованный бэкап сохранен в {}", path)));
+                                }
+                                Err(e) => {
+                                    let _ = ui_tx_worker.send(UiEvent::StatusLog(format!("Ошибка экспорта бэкапа: {}", e)));
+                                }
+                            }
+                        }
+                        AppCommand::ImportBackup { path, password } => {
+                            match MessengerDb::import_encrypted_backup(&path, &password) {
+                                Ok(imported_db) => {
+                                    {
+                                        let mut db = msg_worker.db.write().await;
+                                        *db = imported_db;
+                                        db.save_to_file(&msg_worker.db_path).ok();
+                                    }
+                                    let _ = ui_tx_worker.send(UiEvent::StatusLog("Бэкап успешно восстановлен".into()));
+                                    let db = msg_worker.db.read().await;
+                                    let contacts: Vec<_> = db.contacts.values().cloned().collect();
+                                    let _ = ui_tx_worker.send(UiEvent::ContactsList(contacts));
+                                }
+                                Err(e) => {
+                                    let _ = ui_tx_worker.send(UiEvent::StatusLog(format!("Ошибка импорта бэкапа: {}", e)));
+                                }
+                            }
+                        }
+                        AppCommand::WipeLocalData => {
+                            msg_worker.wipe_local_data().await;
+                            let _ = ui_tx_worker.send(UiEvent::ContactsList(Vec::new()));
+                            let _ = ui_tx_worker.send(UiEvent::StatusLog("Локальные данные и ключи полностью удалены".into()));
+                        }
                     }
                 }
                 _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {
-                    // Periodic stats sync to GUI
+                    // Periodic stats sync to GUI (without exposing mnemonic)
                     let uid = msg_worker.user_id_hex().await;
-                    let (name, bio, mn) = {
+                    let (name, bio, has_mn) = {
                         let db = msg_worker.db.read().await;
-                        (db.display_name.clone(), db.bio.clone(), db.mnemonic.clone())
+                        (db.display_name.clone(), db.bio.clone(), !db.mnemonic.is_empty())
                     };
                     let _ = ui_tx_worker.send(UiEvent::NodeInfo {
                         user_id: uid,
                         dht_node_id: msg_worker.dht_node.node_id.to_string(),
                         display_name: name,
                         bio,
-                        mnemonic: mn,
+                        mnemonic: String::new(),
+                        has_mnemonic: has_mn,
                         dht_peers: msg_worker.dht_node.routing_table.read().await.total_contacts(),
                         stored_keys: msg_worker.dht_node.storage.read().await.len(),
                     });
@@ -330,6 +501,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
         }
     });
+
 
     // Load App Icon from bundled assets
     let icon_bytes = include_bytes!("../assets/logo.png");
@@ -361,7 +533,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         native_options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Box::new(NodeXApp::new(ui_rx, cmd_tx))
+            Ok(Box::new(NodeXApp::new(ui_rx, cmd_tx)))
         }),
     )
     .map_err(|e| format!("eframe GUI error: {}", e))?;

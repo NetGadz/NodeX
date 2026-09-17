@@ -3,13 +3,17 @@ use nodex_kademlia::KademliaNode;
 
 #[tokio::test]
 async fn test_auto_bootstrap_between_nodes() {
-    let mut cfg1 = NodeConfig::default();
-    cfg1.port = 19850;
+    let cfg1 = NodeConfig {
+        port: 19850,
+        ..Default::default()
+    };
     let node1 = KademliaNode::start_with_config(cfg1).await.expect("Node 1 start");
 
-    let mut cfg2 = NodeConfig::default();
-    cfg2.port = 19851;
-    cfg2.bootstrap = vec![node1.network.local_addr];
+    let cfg2 = NodeConfig {
+        port: 19851,
+        bootstrap: vec![node1.network.local_addr],
+        ..Default::default()
+    };
     let node2 = KademliaNode::start_with_config(cfg2).await.expect("Node 2 start");
 
     // Bootstrap node2 to node1

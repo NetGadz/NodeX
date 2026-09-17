@@ -46,4 +46,8 @@ impl MessageQueue {
     pub async fn len(&self) -> usize {
         self.queue.read().await.len()
     }
+
+    pub async fn is_empty(&self) -> bool {
+        self.queue.read().await.is_empty()
+    }
 }

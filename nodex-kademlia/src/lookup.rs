@@ -62,7 +62,7 @@ impl LookupEngine {
             })
             .collect();
 
-        shortlist.sort_by(|a, b| a.distance.cmp(&b.distance));
+        shortlist.sort_by_key(|a| a.distance);
 
         let mut hop = 0;
         loop {
@@ -153,7 +153,7 @@ impl LookupEngine {
             }
 
             // Re-sort shortlist by distance to target
-            shortlist.sort_by(|a, b| a.distance.cmp(&b.distance));
+            shortlist.sort_by_key(|a| a.distance);
 
             // Stop condition: if top K candidates have all been queried or failed
             let top_k_queried = shortlist
@@ -214,7 +214,7 @@ impl LookupEngine {
             })
             .collect();
 
-        shortlist.sort_by(|a, b| a.distance.cmp(&b.distance));
+        shortlist.sort_by_key(|a| a.distance);
 
         let mut hop = 0;
         loop {
@@ -317,7 +317,7 @@ impl LookupEngine {
                 }
             }
 
-            shortlist.sort_by(|a, b| a.distance.cmp(&b.distance));
+            shortlist.sort_by_key(|a| a.distance);
 
             let top_k_queried = shortlist
                 .iter()

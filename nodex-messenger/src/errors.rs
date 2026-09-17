@@ -11,6 +11,7 @@ pub enum MessengerError {
     DatabaseError(String),
     MnemonicError(String),
     ContactBlocked(String),
+    RecipientVerifiedKeyMissing(String),
     AttachmentTooLarge(usize, usize),
     ReplayDetected(String),
     Other(String),
@@ -28,6 +29,7 @@ impl fmt::Display for MessengerError {
             MessengerError::DatabaseError(e) => write!(f, "Local database error: {}", e),
             MessengerError::MnemonicError(e) => write!(f, "BIP-39 Mnemonic error: {}", e),
             MessengerError::ContactBlocked(c) => write!(f, "Contact {} is blocked", c),
+            MessengerError::RecipientVerifiedKeyMissing(id) => write!(f, "Recipient {} has no verified X25519 public key; message sending failed closed", id),
             MessengerError::AttachmentTooLarge(size, max) => write!(f, "Attachment size {} exceeds maximum {}", size, max),
             MessengerError::ReplayDetected(id) => write!(f, "Replay attack detected for message {}", id),
             MessengerError::Other(e) => write!(f, "Messenger error: {}", e),
@@ -36,6 +38,12 @@ impl fmt::Display for MessengerError {
 }
 
 impl std::error::Error for MessengerError {}
+
+impl MessengerError {
+    pub fn contains(&self, needle: &str) -> bool {
+        self.to_string().contains(needle)
+    }
+}
 
 impl From<String> for MessengerError {
     fn from(s: String) -> Self {

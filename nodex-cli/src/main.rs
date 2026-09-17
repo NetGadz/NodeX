@@ -93,6 +93,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         msg.sender_id_hex, msg.text
                     );
                 }
+                MessengerEvent::MessageDeleted { contact_id, message_ids } => {
+                    println!(
+                        "\n\x1b[33m[MSG DELETED]\x1b[0m From/For {}: {} messages removed remotely",
+                        contact_id, message_ids.len()
+                    );
+                }
             }
         }
     });

@@ -7,36 +7,51 @@ use tokio::sync::RwLock;
 
 use crate::crypto::{decrypt_envelope, encrypt_envelope, EncryptedEnvelope};
 use crate::db::{MessengerDb, SavedChatMessage, SavedContact};
+use crate::errors::MessengerError;
 use crate::identity::UserIdentity;
+use crate::presence::UserPresenceCard;
 use nodex_kademlia::lookup::{RPC_RETRIES, RPC_TIMEOUT};
 use nodex_kademlia::node::NodeId;
 use nodex_kademlia::rpc::RpcPayload;
 use nodex_kademlia::KademliaNode;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct UserPresenceCard {
-    pub user_id_hex: String,
-    pub display_name: String,
-    #[serde(default)]
-    pub bio: String,
-    pub ed25519_pub: Vec<u8>,
-    pub x25519_pub: Vec<u8>,
-    pub socket_addr: SocketAddr,
-    pub timestamp: u64,
-    pub signature: Vec<u8>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ChatMessagePayload {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
     pub text: String,
     #[serde(default)]
     pub image_base64: Option<String>,
+    #[serde(default)]
+    pub delete_message_ids: Option<Vec<String>>,
+    #[serde(default)]
+    pub tombstone: Option<SignedTombstone>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SignedTombstone {
+    pub recipient_id: String,
+    pub timestamp: u64,
+    pub deleted_ids: Vec<String>,
+    pub signature: Vec<u8>,
+}
+
+impl SignedTombstone {
+    fn signing_bytes(&self) -> Vec<u8> {
+        serde_json::to_vec(&(&self.recipient_id, self.timestamp, &self.deleted_ids))
+            .expect("tombstone signing payload serialization cannot fail")
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum MessengerEvent {
     ContactsUpdated(Vec<SavedContact>),
     MessageReceived(SavedChatMessage),
+    MessageDeleted {
+        contact_id: String,
+        message_ids: Vec<String>,
+    },
 }
 
 pub struct KadMessenger {
@@ -158,6 +173,41 @@ impl KadMessenger {
         Ok(())
     }
 
+    pub async fn create_invite_link(&self, ttl_days: Option<u64>) -> Result<String, String> {
+        let identity = self.identity.read().await;
+        let display_name = {
+            let db = self.db.read().await;
+            db.display_name.clone()
+        };
+        let endpoints = vec![self.dht_node.network.local_addr];
+        let ttl_secs = ttl_days.map(|d| d * 86400);
+        crate::invite::InviteManager::create_invite(&identity, &display_name, endpoints, ttl_secs)
+    }
+
+    pub async fn add_contact_by_invite(&self, invite_str: &str) -> Result<SavedContact, String> {
+        let now = current_timestamp();
+        let payload = crate::invite::InviteManager::parse_and_verify_invite(invite_str, now)?;
+
+        let primary_addr = payload.endpoints.first().map(|a| a.to_string()).unwrap_or_else(|| "unknown".into());
+
+        let contact = SavedContact {
+            user_id_hex: payload.user_id.clone(),
+            name: if payload.display_name.is_empty() { format!("Peer_{}", &payload.user_id[..6.min(payload.user_id.len())]) } else { payload.display_name },
+            bio: "".into(),
+            ed25519_pub_hex: payload.ed25519_pub_hex,
+            x25519_pub_hex: payload.x25519_pub_hex,
+            last_seen_addr: primary_addr,
+        };
+
+        {
+            let mut db = self.db.write().await;
+            db.add_contact(contact.clone());
+            db.save_to_file(&self.db_path).ok();
+        }
+
+        Ok(contact)
+    }
+
     pub fn start_inbox_polling_task(self: &Arc<Self>, event_tx: Option<std::sync::mpsc::Sender<MessengerEvent>>) {
         let messenger = Arc::clone(self);
         tokio::spawn(async move {
@@ -181,21 +231,74 @@ impl KadMessenger {
                     };
 
                     let mut received_any = false;
+                    let mut unconsumed_envelopes = Vec::new();
                     for envelope in envelopes {
                         if envelope.recipient_id == my_node_id {
+                            // Do not echo our own messages as incoming
+                            if envelope.sender_id == my_node_id {
+                                continue;
+                            }
+
+                            let sender_hex = envelope.sender_id.to_hex();
+
+                            // Discard incoming messages if sender is blocked
+                            let is_blocked = {
+                                let db = messenger.db.read().await;
+                                db.is_blocked(&sender_hex)
+                            };
+                            if is_blocked {
+                                continue;
+                            }
+
                             let decrypt_res = {
                                 let id = messenger.identity.read().await;
                                 decrypt_envelope(&id, &envelope)
                             };
                             if let Ok(plaintext) = decrypt_res {
-                                let (text, image_base64) = if let Ok(payload) = serde_json::from_slice::<ChatMessagePayload>(&plaintext) {
-                                    (payload.text, payload.image_base64)
+                                let payload: ChatMessagePayload = if let Ok(p) = serde_json::from_slice::<ChatMessagePayload>(&plaintext) {
+                                    p
                                 } else {
-                                    (String::from_utf8_lossy(&plaintext).to_string(), None)
+                                    ChatMessagePayload {
+                                        id: String::new(),
+                                        text: String::from_utf8_lossy(&plaintext).to_string(),
+                                        image_base64: None,
+                                        delete_message_ids: None,
+                                        tombstone: None,
+                                    }
                                 };
 
-                                let sender_hex = envelope.sender_id.to_hex();
-                                let msg_id = format!("{}_{}", envelope.timestamp, sender_hex);
+                                // Handle only cryptographically signed remote deletion commands.
+                                if let Some(tombstone) = payload.tombstone {
+                                    let valid_recipient = tombstone.recipient_id == my_user_id;
+                                    let valid_signature = UserIdentity::verify(
+                                        &envelope.sender_ed25519_pub,
+                                        &tombstone.signing_bytes(),
+                                        &tombstone.signature,
+                                    );
+                                    if valid_recipient && valid_signature {
+                                        let del_ids = tombstone.deleted_ids;
+                                        let mut db = messenger.db.write().await;
+                                        db.delete_messages(&del_ids);
+                                        db.save_to_file(&messenger.db_path).ok();
+                                        received_any = true;
+                                        if let Some(ref tx) = event_tx {
+                                            let _ = tx.send(MessengerEvent::MessageDeleted {
+                                                contact_id: sender_hex.clone(),
+                                                message_ids: del_ids.clone(),
+                                            });
+                                        }
+                                        println!("[MESSENGER] Processed remote deletion of {} message(s) from {}", del_ids.len(), sender_hex);
+                                        continue;
+                                    }
+                                }
+
+                                let text = payload.text;
+                                let image_base64 = payload.image_base64;
+                                let msg_id = if !payload.id.is_empty() {
+                                    payload.id
+                                } else {
+                                    format!("{}_{}", envelope.timestamp, sender_hex)
+                                };
 
                                 let chat_msg = SavedChatMessage {
                                     id: msg_id,
@@ -217,7 +320,10 @@ impl KadMessenger {
                                 if !has_contact {
                                     let (discovered_name, discovered_bio) = match messenger.discover_peer(&sender_hex).await {
                                         Ok(card) => (card.display_name, card.bio),
-                                        Err(_) => (format!("Peer_{}", &sender_hex[..6.min(sender_hex.len())]), String::new()),
+                                        Err(_) => {
+                                            let p: String = sender_hex.chars().take(6).collect();
+                                            (format!("Peer_{}", p), String::new())
+                                        }
                                     };
                                     let mut db = messenger.db.write().await;
                                     db.add_contact(SavedContact {
@@ -233,10 +339,14 @@ impl KadMessenger {
 
                                 let is_new = {
                                     let mut db = messenger.db.write().await;
-                                    let before = db.messages.len();
-                                    db.add_message(chat_msg.clone());
-                                    db.save_to_file(&messenger.db_path).ok();
-                                    db.messages.len() > before
+                                    if db.deleted_message_ids.contains(&chat_msg.id) {
+                                        false
+                                    } else {
+                                        let before = db.messages.len();
+                                        db.add_message(chat_msg.clone());
+                                        db.save_to_file(&messenger.db_path).ok();
+                                        db.messages.len() > before
+                                    }
                                 };
 
                                 if is_new {
@@ -250,7 +360,18 @@ impl KadMessenger {
                                     println!("[MESSENGER] Received E2EE message from {} via Direct/Mailbox Transport!", sender_hex);
                                 }
                             }
+                        } else {
+                            unconsumed_envelopes.push(envelope);
                         }
+                    }
+
+                    // Drain consumed envelopes from mailbox storage
+                    if unconsumed_envelopes.is_empty() {
+                        let mailbox_node_id = NodeId::from_key(mailbox_key.as_bytes());
+                        messenger.dht_node.storage.write().await.remove(&mailbox_node_id);
+                    } else {
+                        let payload = serde_json::to_vec(&unconsumed_envelopes).unwrap_or_default();
+                        let _ = messenger.dht_node.put(&mailbox_key, payload).await;
                     }
 
                     if received_any {
@@ -273,23 +394,15 @@ impl KadMessenger {
             (db.display_name.clone(), db.bio.clone())
         };
 
-        let mut sign_payload = Vec::new();
-        sign_payload.extend_from_slice(identity.user_id.as_bytes());
-        sign_payload.extend_from_slice(self.dht_node.network.local_addr.to_string().as_bytes());
-        sign_payload.extend_from_slice(&timestamp.to_be_bytes());
-
-        let signature = identity.sign(&sign_payload);
-
-        let card = UserPresenceCard {
-            user_id_hex: identity.user_id_hex(),
+        let card = UserPresenceCard::create_with_endpoints(
+            &identity,
             display_name,
             bio,
-            ed25519_pub: identity.verifying_key.to_bytes().to_vec(),
-            x25519_pub: identity.x25519_public.as_bytes().to_vec(),
-            socket_addr: self.dht_node.network.local_addr,
+            self.dht_node.network.local_addr,
+            vec![self.dht_node.network.local_addr],
+            nodex_kademlia::nat_type::NatCategory::Unknown,
             timestamp,
-            signature,
-        };
+        );
 
         let json_bytes = serde_json::to_vec(&card).map_err(|e| format!("Presence serialize error: {}", e))?;
         let presence_key = format!("presence_{}", identity.user_id_hex());
@@ -306,6 +419,17 @@ impl KadMessenger {
         if let Some((bytes, _from)) = res {
             let card: UserPresenceCard = serde_json::from_slice(&bytes)
                 .map_err(|e| format!("Failed to parse presence card: {}", e))?;
+
+            // Cryptographic identity binding & signature verification
+            if card.ed25519_pub.len() != 32 {
+                return Err("Invalid Ed25519 public key length in presence card".into());
+            }
+            let expected_node_id = NodeId::from_key(&card.ed25519_pub);
+            if expected_node_id.to_hex() != card.user_id_hex {
+                return Err("Presence card User ID does not match Ed25519 public key".into());
+            }
+
+            card.verify_signature().map_err(|e| e.to_string())?;
             
             let mut db = self.db.write().await;
             db.add_contact(SavedContact {
@@ -324,8 +448,16 @@ impl KadMessenger {
         }
     }
 
-    pub async fn send_message(&self, recipient_id_hex: &str, text: &str, image_base64: Option<String>) -> Result<SavedChatMessage, String> {
-        let recipient_id = NodeId::from_hex(recipient_id_hex)?;
+    pub async fn send_message(&self, recipient_id_hex: &str, text: &str, image_base64: Option<String>) -> Result<SavedChatMessage, MessengerError> {
+        let recipient_id = NodeId::from_hex(recipient_id_hex).map_err(MessengerError::Other)?;
+
+        // Check if recipient is blocked
+        {
+            let db = self.db.read().await;
+            if db.is_blocked(recipient_id_hex) {
+                return Err(MessengerError::ContactBlocked(recipient_id_hex.to_string()));
+            }
+        }
 
         // 1. Resolve recipient's X25519 public key and address from contacts cache or DHT discovery
         let (recipient_x25519_bytes, target_socket_addr) = {
@@ -344,37 +476,43 @@ impl KadMessenger {
                 } else {
                     match self.discover_peer(recipient_id_hex).await {
                         Ok(card) => (card.x25519_pub, Some(card.socket_addr)),
-                        Err(_) => (vec![0u8; 32], None),
+                        Err(_) => (Vec::new(), None),
                     }
                 }
             } else {
                 match self.discover_peer(recipient_id_hex).await {
                     Ok(card) => (card.x25519_pub, Some(card.socket_addr)),
-                    Err(_) => (vec![0u8; 32], None),
+                    Err(_) => (Vec::new(), None),
                 }
             }
         };
 
-        let mut x25519_arr = [0u8; 32];
-        if recipient_x25519_bytes.len() == 32 {
-            x25519_arr.copy_from_slice(&recipient_x25519_bytes);
-        } else {
-            // Fallback derived key from recipient node ID
-            let mut h = [0u8; 32];
-            h[..20].copy_from_slice(recipient_id.as_bytes());
-            x25519_arr = h;
+        // Fail-closed: Never synthesize fake keys from Node ID
+        if recipient_x25519_bytes.len() != 32 {
+            return Err(MessengerError::RecipientVerifiedKeyMissing(recipient_id_hex.to_string()));
         }
+
+        let mut x25519_arr = [0u8; 32];
+        x25519_arr.copy_from_slice(&recipient_x25519_bytes);
         let recipient_x25519 = x25519_dalek::PublicKey::from(x25519_arr);
 
+        let my_user_id_hex = self.identity.read().await.user_id_hex();
+        let short_id: String = my_user_id_hex.chars().take(8).collect();
+        let msg_id = format!("{}_{}_{:x}", current_timestamp(), short_id, rand::random::<u32>());
+
         let payload_struct = ChatMessagePayload {
+            id: msg_id.clone(),
             text: text.to_string(),
             image_base64: image_base64.clone(),
+            delete_message_ids: None,
+            tombstone: None,
         };
-        let payload_bytes = serde_json::to_vec(&payload_struct).map_err(|e| e.to_string())?;
+        let payload_bytes = serde_json::to_vec(&payload_struct).map_err(|e| MessengerError::Other(e.to_string()))?;
 
         let envelope = {
             let id = self.identity.read().await;
-            encrypt_envelope(&id, recipient_id, &recipient_x25519, &payload_bytes)?
+            encrypt_envelope(&id, recipient_id, &recipient_x25519, &payload_bytes)
+                .map_err(MessengerError::Other)?
         };
 
         let mailbox_key = current_mailbox_key(recipient_id_hex);
@@ -409,8 +547,6 @@ impl KadMessenger {
         // 3. Deposit into DHT Mailbox relay so message is persisted across the network
         let _ = deposit_envelope_to_mailbox(&self.dht_node, recipient_id_hex, envelope).await;
 
-        let my_user_id_hex = self.identity.read().await.user_id_hex();
-        let msg_id = format!("{}_{}", current_timestamp(), rand::random::<u32>());
         let chat_msg = SavedChatMessage {
             id: msg_id,
             sender_id_hex: my_user_id_hex,
@@ -429,6 +565,163 @@ impl KadMessenger {
         }
 
         Ok(chat_msg)
+    }
+
+    pub async fn delete_message(&self, message_id: &str) {
+        let mut db = self.db.write().await;
+        db.delete_message(message_id);
+        db.save_to_file(&self.db_path).ok();
+    }
+
+    pub async fn delete_messages(&self, message_ids: &[String]) {
+        let mut db = self.db.write().await;
+        db.delete_messages(message_ids);
+        db.save_to_file(&self.db_path).ok();
+    }
+
+    pub async fn delete_messages_for_everyone(&self, recipient_id_hex: &str, message_ids: Vec<String>) -> Result<(), String> {
+        if message_ids.is_empty() {
+            return Ok(());
+        }
+
+        // 1. Delete locally first
+        {
+            let mut db = self.db.write().await;
+            db.delete_messages(&message_ids);
+            db.save_to_file(&self.db_path).ok();
+        }
+
+        // 2. Deliver remote deletion payload to recipient
+        let recipient_id = NodeId::from_hex(recipient_id_hex)?;
+        let (recipient_x25519_bytes, target_socket_addr) = {
+            let (cached_key, cached_addr) = {
+                let db = self.db.read().await;
+                if let Some(c) = db.contacts.get(recipient_id_hex) {
+                    (hex_decode(&c.x25519_pub_hex), c.last_seen_addr.parse::<SocketAddr>().ok())
+                } else {
+                    (None, None)
+                }
+            };
+            if let (Some(k), addr) = (cached_key, cached_addr) {
+                if k.len() == 32 {
+                    (k, addr)
+                } else {
+                    match self.discover_peer(recipient_id_hex).await {
+                        Ok(card) => (card.x25519_pub, Some(card.socket_addr)),
+                        Err(_) => (Vec::new(), None),
+                    }
+                }
+            } else {
+                match self.discover_peer(recipient_id_hex).await {
+                    Ok(card) => (card.x25519_pub, Some(card.socket_addr)),
+                    Err(_) => (Vec::new(), None),
+                }
+            }
+        };
+
+        if recipient_x25519_bytes.len() == 32 {
+            let mut x25519_arr = [0u8; 32];
+            x25519_arr.copy_from_slice(&recipient_x25519_bytes);
+            let recipient_x25519 = x25519_dalek::PublicKey::from(x25519_arr);
+
+            let mut tombstone = SignedTombstone {
+                recipient_id: recipient_id_hex.to_string(),
+                timestamp: current_timestamp(),
+                deleted_ids: message_ids.clone(),
+                signature: Vec::new(),
+            };
+            {
+                let identity = self.identity.read().await;
+                tombstone.signature = identity.sign(&tombstone.signing_bytes());
+            }
+            let payload_struct = ChatMessagePayload {
+                id: String::new(),
+                text: String::new(),
+                image_base64: None,
+                delete_message_ids: None,
+                tombstone: Some(tombstone),
+            };
+
+            if let Ok(payload_bytes) = serde_json::to_vec(&payload_struct) {
+                if let Ok(envelope) = {
+                    let id = self.identity.read().await;
+                    encrypt_envelope(&id, recipient_id, &recipient_x25519, &payload_bytes)
+                } {
+                    let mailbox_key = current_mailbox_key(recipient_id_hex);
+                    let mailbox_key_id = NodeId::from_key(mailbox_key.as_bytes());
+                    let single_payload = serde_json::to_vec(&vec![envelope.clone()]).unwrap_or_default();
+
+                    if let Some(addr) = target_socket_addr {
+                        let _ = self.dht_node.network.call(
+                            addr,
+                            RpcPayload::Store { key: mailbox_key_id, value: single_payload },
+                            RPC_TIMEOUT,
+                            RPC_RETRIES,
+                        ).await;
+                    }
+                    let _ = deposit_envelope_to_mailbox(&self.dht_node, recipient_id_hex, envelope).await;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn block_contact(&self, contact_id_hex: &str) {
+        let mut db = self.db.write().await;
+        db.block_user(contact_id_hex);
+        db.save_to_file(&self.db_path).ok();
+    }
+
+    pub async fn unblock_contact(&self, contact_id_hex: &str) {
+        let mut db = self.db.write().await;
+        db.unblock_user(contact_id_hex);
+        db.save_to_file(&self.db_path).ok();
+    }
+
+    pub async fn clear_chat(&self, contact_id_hex: &str) {
+        {
+            let mut db = self.db.write().await;
+            db.clear_messages_for_contact(contact_id_hex);
+            db.save_to_file(&self.db_path).ok();
+        }
+        let my_hex = self.user_id_hex().await;
+        let my_mailbox = current_mailbox_key(&my_hex);
+        let contact_mailbox = current_mailbox_key(contact_id_hex);
+        self.dht_node.storage.write().await.remove(&NodeId::from_key(my_mailbox.as_bytes()));
+        self.dht_node.storage.write().await.remove(&NodeId::from_key(contact_mailbox.as_bytes()));
+    }
+
+    pub async fn delete_contact(&self, contact_id_hex: &str) {
+        self.clear_chat(contact_id_hex).await;
+        let mut db = self.db.write().await;
+        db.delete_contact(contact_id_hex);
+        db.save_to_file(&self.db_path).ok();
+    }
+
+    pub async fn wipe_local_data(&self) {
+        {
+            let mut db = self.db.write().await;
+            db.contacts.clear();
+            db.messages.clear();
+            db.deleted_message_ids.clear();
+            db.blocked_user_ids.clear();
+            db.mnemonic.clear();
+            db.user_seed = [0u8; 32];
+            db.display_name.clear();
+            db.bio.clear();
+        }
+        let _ = std::fs::remove_file(&self.db_path);
+        let mut kpath = std::path::PathBuf::from(&self.db_path);
+        let ext = kpath.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default();
+        if ext.is_empty() {
+            kpath.set_extension("key");
+        } else {
+            kpath.set_extension(format!("{}.key", ext));
+        }
+        let _ = std::fs::remove_file(kpath);
+
+        self.dht_node.storage.write().await.clear();
     }
 }
 
@@ -461,7 +754,7 @@ async fn deposit_envelope_to_mailbox(dht_node: &KademliaNode, recipient_id_hex: 
 
 fn hex_decode(s: &str) -> Option<Vec<u8>> {
     let s = s.trim();
-    if s.is_empty() || s.len() % 2 != 0 {
+    if s.is_empty() || !s.len().is_multiple_of(2) {
         return None;
     }
     (0..s.len())

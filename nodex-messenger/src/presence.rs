@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use serde::{Deserialize, Serialize};
+use nodex_kademlia::nat_type::NatCategory;
 use crate::errors::MessengerError;
 use crate::identity::UserIdentity;
 
@@ -12,11 +13,29 @@ pub struct UserPresenceCard {
     pub ed25519_pub: Vec<u8>,
     pub x25519_pub: Vec<u8>,
     pub socket_addr: SocketAddr,
+    #[serde(default)]
+    pub endpoints: Vec<SocketAddr>,
+    #[serde(default)]
+    pub nat_category: NatCategory,
     pub timestamp: u64,
     pub signature: Vec<u8>,
 }
 
 impl UserPresenceCard {
+    fn signing_bytes(&self) -> Vec<u8> {
+        serde_json::to_vec(&(
+            &self.user_id_hex,
+            &self.display_name,
+            &self.bio,
+            &self.ed25519_pub,
+            &self.x25519_pub,
+            &self.socket_addr,
+            &self.endpoints,
+            &self.nat_category,
+            self.timestamp,
+        )).expect("presence signing payload serialization cannot fail")
+    }
+
     pub fn create(
         identity: &UserIdentity,
         display_name: String,
@@ -24,23 +43,40 @@ impl UserPresenceCard {
         socket_addr: SocketAddr,
         timestamp: u64,
     ) -> Self {
-        let mut sign_payload = Vec::new();
-        sign_payload.extend_from_slice(identity.user_id.as_bytes());
-        sign_payload.extend_from_slice(socket_addr.to_string().as_bytes());
-        sign_payload.extend_from_slice(&timestamp.to_be_bytes());
+        Self::create_with_endpoints(
+            identity,
+            display_name,
+            bio,
+            socket_addr,
+            vec![socket_addr],
+            NatCategory::Unknown,
+            timestamp,
+        )
+    }
 
-        let signature = identity.sign(&sign_payload);
-
-        Self {
+    pub fn create_with_endpoints(
+        identity: &UserIdentity,
+        display_name: String,
+        bio: String,
+        socket_addr: SocketAddr,
+        endpoints: Vec<SocketAddr>,
+        nat_category: NatCategory,
+        timestamp: u64,
+    ) -> Self {
+        let mut card = Self {
             user_id_hex: identity.user_id_hex(),
             display_name,
             bio,
             ed25519_pub: identity.verifying_key.to_bytes().to_vec(),
             x25519_pub: identity.x25519_public.as_bytes().to_vec(),
             socket_addr,
+            endpoints,
+            nat_category,
             timestamp,
-            signature,
-        }
+            signature: Vec::new(),
+        };
+        card.signature = identity.sign(&card.signing_bytes());
+        card
     }
 
     pub fn verify_signature(&self) -> Result<(), MessengerError> {
@@ -52,6 +88,14 @@ impl UserPresenceCard {
         let vk = ed25519_dalek::VerifyingKey::from_bytes(&vk_arr)
             .map_err(|e| MessengerError::CryptoError(e.to_string()))?;
 
+        let expected_user_id = core_ffi::ffi_hash_node_id(&self.ed25519_pub)
+            .iter()
+            .map(|byte| format!("{:02x}", byte))
+            .collect::<String>();
+        if self.user_id_hex != expected_user_id {
+            return Err(MessengerError::CryptoError("Presence user ID does not match Ed25519 public key".into()));
+        }
+
         if self.signature.len() != 64 {
             return Err(MessengerError::CryptoError("Signature must be 64 bytes".into()));
         }
@@ -59,13 +103,7 @@ impl UserPresenceCard {
         sig_arr.copy_from_slice(&self.signature);
         let sig = ed25519_dalek::Signature::from_bytes(&sig_arr);
 
-        let user_id_bytes = core_ffi::ffi_hash_node_id(&self.ed25519_pub);
-        let mut sign_payload = Vec::new();
-        sign_payload.extend_from_slice(&user_id_bytes);
-        sign_payload.extend_from_slice(self.socket_addr.to_string().as_bytes());
-        sign_payload.extend_from_slice(&self.timestamp.to_be_bytes());
-
-        vk.verify_strict(&sign_payload, &sig)
+        vk.verify_strict(&self.signing_bytes(), &sig)
             .map_err(|e| MessengerError::CryptoError(format!("Invalid presence signature: {}", e)))
     }
 }

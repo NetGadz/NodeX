@@ -13,3 +13,7 @@
 3. Plaintext payload (text + optional image attachment) is encrypted with ChaCha20-Poly1305 with a 96-bit random nonce.
 4. An Ed25519 signature is computed across `(sender_pubkey || recipient_pubkey || ciphertext || timestamp)` to ensure non-repudiation and replay protection.
 5. Encrypted envelopes cannot be decrypted by intermediate DHT nodes or relay mailboxes.
+
+## Local key protection
+
+The database master key is generated per installation and stored separately from the encrypted database. On Unix-like systems the key file is restricted to mode `0600`; on Windows NodeX removes inherited ACLs and grants access to the current user through `icacls`. Losing or deleting this key file makes the associated encrypted database unrecoverable by design.
