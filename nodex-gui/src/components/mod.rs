@@ -1,0 +1,9 @@
+﻿pub mod attachment_card;
+pub mod avatar;
+pub mod chat_background;
+pub mod icons;
+pub mod media_viewer;
+pub mod message_bubble;
+pub mod qr_view;
+pub mod voice_player;
+pub mod voice_recorder;

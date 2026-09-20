@@ -1,0 +1,16 @@
+{
+  "port": 8000,
+  "ip": "127.0.0.1",
+  "k": 20,
+  "alpha": 3,
+  "t_expire": 3600,
+  "t_refresh": 600,
+  "t_republish": 3600,
+  "rpc_timeout_ms": 1000,
+  "state_file": "nodex_dev_state.json",
+  "bootstrap": [
+    "127.0.0.1:8000",
+    "127.0.0.1:8001",
+    "127.0.0.1:8002"
+  ]
+}

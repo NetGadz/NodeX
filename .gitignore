@@ -1,0 +1,29 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# Local NodeX runtime databases and state files
+*.json.bak
+messenger_db_*.json
+messenger_db_*.json.key
+nodex_*state*.json
+*.key
+*.ready
+*.log
+
+# Project data directory
+/data/*
+!/data/.gitkeep
+!/data/README.md
+
+# Distribution bundles
+/dist/
+
+# IDE and Editor configurations
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

@@ -1,0 +1,558 @@
+NodeX GUI Redesign
+Technical Specification for Claude
+==================================
+
+1. Context
+==========
+
+The main GUI implementation is currently concentrated in:
+
+nodex-gui/src/gui.rs
+
+The application entry point and background command/event wiring are in:
+
+nodex-gui/src/main.rs
+
+The redesign must primarily update gui.rs while preserving the existing public
+commands, events, messenger behavior, and networking logic. Do not rewrite the
+DHT or E2EE layers as part of the visual redesign.
+
+The target experience is a polished native desktop messenger inspired by the
+clarity of Telegram Desktop and the information hierarchy of Discord, without
+copying their branding, assets, or exact visual design.
+
+2. Product Goal
+===============
+
+Transform NodeX from a diagnostic-looking prototype into a clean, modern,
+calm, professional desktop messenger.
+
+The user should immediately understand:
+
+- which chats exist;
+- which chat is selected;
+- whether the network is connected;
+- whether a message was sent, delivered, read, or failed;
+- how to add a contact;
+- how to open the profile and settings.
+
+Technical networking details must not dominate the regular chat interface.
+IP addresses, transport IDs, NAT diagnostics, and raw DHT information belong
+in a separate diagnostics screen.
+
+3. Files and Responsibilities
+============================
+
+Primary file:
+
+nodex-gui/src/gui.rs
+
+Responsibilities:
+
+- application state used by the UI;
+- sidebar rendering;
+- chat header rendering;
+- message list and message bubbles;
+- message composer;
+- onboarding screens;
+- profile and settings dialogs;
+- contact dialogs;
+- photo lightbox;
+- theme and reusable UI helpers.
+
+Supporting file:
+
+nodex-gui/src/main.rs
+
+Only modify main.rs when necessary to:
+
+- add a new UI event;
+- add a new UI command;
+- expose a real existing backend state;
+- connect notifications or diagnostics.
+
+Do not move networking, encryption, database, or message delivery logic into
+the GUI layer.
+
+Recommended future split, after the first redesign:
+
+nodex-gui/src/
+|- main.rs
+|- gui.rs
+|- app_state.rs
+|- components.rs
+|- sidebar.rs
+|- chat_view.rs
+|- message_bubble.rs
+|- composer.rs
+|- onboarding.rs
+|- profile_view.rs
+|- settings_view.rs
+|- diagnostics_view.rs
+|- dialogs.rs
+|- theme.rs
+`- icons.rs
+
+For the first implementation, keeping the code in gui.rs is acceptable if
+reusable rendering helpers are extracted and the file remains understandable.
+
+4. Visual Direction
+===================
+
+Style:
+
+- professional desktop messenger;
+- compact but comfortable;
+- restrained dark theme;
+- clear spacing and hierarchy;
+- subtle borders;
+- minimal decoration;
+- no visual noise;
+- no excessive cards inside cards;
+- no large empty dashboard panels;
+- no excessive gradients;
+- no random emoji used as interface icons.
+
+Inspiration:
+
+- Telegram: chat list, compact message bubbles, readable conversation layout;
+- Discord: clear navigation, account controls, status visibility, settings structure.
+
+Do not copy:
+
+- Telegram or Discord logos;
+- their exact colors;
+- their exact icons;
+- their proprietary assets;
+- their exact layout or text.
+
+5. Color System
+===============
+
+Define one theme with named constants or a theme helper.
+
+Suggested colors:
+
+Background:        #0F172A
+Sidebar:           #111827
+Surface:           #1E293B
+Surface hover:     #263449
+Surface selected:  #164E63
+Accent:            #06B6D4
+Accent hover:      #22D3EE
+Text primary:      #F8FAFC
+Text secondary:    #94A3B8
+Text muted:        #64748B
+Success:           #22C55E
+Warning:           #F59E0B
+Danger:            #F87171
+Border:            #334155
+
+Use accent cyan only for:
+
+- primary action;
+- selected chat;
+- links;
+- active controls;
+- online state when appropriate.
+
+Do not make every panel cyan or outline every widget heavily.
+
+6. Typography and Spacing
+=========================
+
+Use a consistent type scale:
+
+- application title: 20-24 px;
+- section title: 15-17 px;
+- chat name: 15-16 px;
+- body text: 14 px;
+- secondary text: 11-12 px;
+- timestamps: 10-11 px.
+
+Spacing system:
+
+- 4 px: icon-to-label gap;
+- 8 px: compact internal gap;
+- 12 px: standard control gap;
+- 16 px: section gap;
+- 24 px: major section gap.
+
+Avoid arbitrary spacing values throughout the file.
+
+7. Main Application Layout
+==========================
+
+Use a stable two-column layout:
+
++-------------------------------------------------------------+
+| sidebar header                         profile / settings   |
++----------------------+--------------------------------------+
+| search               | chat header                          |
+|                      +--------------------------------------+
+| chat list            | message history                     |
+|                      |                                      |
+|                      +--------------------------------------+
+| add contact          | message composer                   |
++----------------------+--------------------------------------+
+
+Recommended dimensions:
+
+- sidebar width: 280-320 px;
+- chat header: 64-72 px;
+- chat row: 64-72 px;
+- composer: 58-72 px;
+- message max width: 65% of available chat width;
+- minimum application size: 960x600.
+
+The layout must remain usable at smaller window sizes without overlapping text
+or controls.
+
+8. Sidebar
+==========
+
+Header:
+
+- compact hamburger/menu button;
+- NodeX wordmark or small logo;
+- search field;
+- add-contact icon button.
+
+Do not use large technical labels in the sidebar.
+
+Chat rows:
+
+- avatar;
+- display name;
+- one-line message preview;
+- timestamp or relative time;
+- unread badge;
+- muted/online indicator when relevant;
+- selected state with subtle background.
+
+The current user's profile should appear in a compact bottom row or top account
+button, not as a large repeated card in the chat list.
+
+Empty chat list:
+
+- small icon or logo;
+- short text: "Нет чатов";
+- primary action: "Добавить контакт".
+
+9. Chat Header
+==============
+
+Show:
+
+- avatar;
+- contact display name;
+- human-readable state: "В сети", "Через relay", "Офлайн", or "Подключение...";
+- optional bio in secondary text;
+- search-in-chat button;
+- menu button.
+
+Hide by default:
+
+- raw IP address;
+- UDP port;
+- transport node ID;
+- DHT storage count;
+- long User ID.
+
+Provide a separate diagnostics view for technical data.
+
+10. Message Bubbles
+===================
+
+Incoming messages:
+
+- align left;
+- dark slate surface;
+- subtle border;
+- rounded corners with a small tail impression;
+- compact width based on content.
+
+Outgoing messages:
+
+- align right;
+- slightly brighter accent surface;
+- readable white text;
+- compact width based on content.
+
+Every bubble may contain:
+
+- text;
+- image preview;
+- timestamp;
+- delivery status;
+- read status;
+- failed state with retry action.
+
+Required behavior:
+
+- short messages must not stretch to full row width;
+- long messages wrap inside a stable max width;
+- images preserve aspect ratio;
+- images have a bounded preview size;
+- clicking an image opens the lightbox;
+- message list scrolls independently;
+- latest messages remain visible at the bottom;
+- incoming messages mark the chat unread only when another chat is selected.
+
+Statuses:
+
+- one check: sent;
+- two checks: delivered;
+- colored two checks: read;
+- warning icon: failed;
+- spinner: sending.
+
+Do not display technical transport details inside each message bubble.
+
+11. Message Composer
+====================
+
+Composer must contain:
+
+- attachment button;
+- optional emoji button;
+- single-line or multiline text input;
+- send button;
+- pending attachment preview;
+- failed-send retry feedback.
+
+Keyboard behavior:
+
+- Enter sends a message when not composing multiline text;
+- Shift+Enter creates a newline if multiline input is enabled;
+- Escape closes emoji picker or attachment preview.
+
+The composer must not resize unpredictably when an attachment is selected.
+
+12. Profile and Settings
+========================
+
+Use a movable or right-side drawer instead of a large centered diagnostic card.
+
+Profile section:
+
+- avatar;
+- display name;
+- bio;
+- User ID with copy button;
+- fingerprint;
+- copy invite button;
+- account recovery access with warning.
+
+Network section:
+
+- status: Online / Connecting / Offline;
+- transport mode: Direct / Hole Punching / Relay / Mailbox;
+- peer count;
+- diagnostics button.
+
+Security section:
+
+- show/hide recovery phrase;
+- explicit warning before revealing seed;
+- contact verification state;
+- changed-key warnings.
+
+Advanced diagnostics must be hidden behind a separate button.
+
+13. Add Contact Dialog
+======================
+
+The dialog must support two modes:
+
+1. User ID
+2. Invite link
+
+Fields:
+
+- User ID input;
+- invite link input;
+- optional display name;
+- validation status;
+- fingerprint preview;
+- explicit confirmation before adding a changed key.
+
+The dialog must be movable, have a stable default position, and remain fully
+visible at normal window sizes.
+
+14. Onboarding
+==============
+
+Create account screen:
+
+- clear NodeX logo;
+- display name input;
+- 12-word recovery phrase grid;
+- copy phrase button;
+- confirmation checkbox;
+- continue button;
+- strong warning not to share the phrase.
+
+Restore account screen:
+
+- mnemonic input;
+- validation result;
+- display name input;
+- restore button;
+- clear error messages.
+
+Onboarding must not show DHT implementation details.
+
+15. Notifications and Status Feedback
+=====================================
+
+Use small non-blocking toast messages for:
+
+- message sent;
+- contact added;
+- profile saved;
+- copied to clipboard;
+- attachment rejected;
+- network unavailable;
+- key changed;
+- relay enabled or disabled.
+
+Errors must be understandable to normal users. Technical detail can be copied
+from a diagnostics panel.
+
+16. Icons and Assets
+====================
+
+Use one consistent icon set where possible.
+
+Preferred options:
+
+- an existing compatible icon crate;
+- bundled vector or raster assets;
+- consistent monochrome icons.
+
+Do not use random emoji as primary UI icons. Emoji may remain in user messages
+and the optional emoji picker.
+
+Required icon actions:
+
+- menu;
+- search;
+- add contact;
+- profile;
+- settings;
+- attachment;
+- emoji;
+- send;
+- copy;
+- close;
+- retry;
+- diagnostics;
+- network status.
+
+17. Responsive and Interaction Requirements
+============================================
+
+- No overlapping controls.
+- No text clipped in buttons.
+- No message bubble vertical stretching.
+- No dialog trapped inside only the central chat panel.
+- Movable dialogs may cross the sidebar and message area.
+- Window resizing must preserve usable layout.
+- Scroll areas must have stable dimensions.
+- Focus states must be visible.
+- Buttons must have hover and pressed states.
+- Keyboard navigation should work for onboarding and dialogs.
+
+18. Accessibility
+=================
+
+- Every icon-only button has a tooltip.
+- Text contrast must be readable.
+- Important state must not rely on color alone.
+- Error messages must include text or an icon plus text.
+- Inputs need visible focus state.
+- Buttons need a stable minimum hit area.
+
+19. Do Not Break
+================
+
+The redesign must preserve:
+
+- AppCommand values;
+- UiEvent values;
+- message sending;
+- message receiving;
+- image attachments;
+- contact selection;
+- onboarding registration and restore;
+- profile update;
+- local database persistence;
+- direct/DHT delivery behavior.
+
+Do not put networking calls directly in egui rendering code.
+Do not introduce mock message data into production rendering.
+Do not remove diagnostics functionality; move it behind a diagnostics view.
+
+20. Acceptance Criteria
+=======================
+
+The GUI redesign is complete when:
+
+- The first screen looks like a polished messenger, not a debug dashboard.
+- Sidebar, chat header, message list, and composer have clear hierarchy.
+- Short bubbles remain compact.
+- Long messages wrap correctly.
+- Images show for both sender and recipient when delivered.
+- Profile and contact dialogs can be moved freely.
+- IP addresses and raw technical IDs are hidden from the regular chat UI.
+- Network state is readable in plain language.
+- Unread counts work.
+- Sent, delivered, read, sending, and failed states are visible.
+- Onboarding is clear and visually consistent.
+- UI remains usable at 960x600 and at a larger desktop size.
+- No new Clippy warnings are introduced.
+- Existing workspace tests still pass.
+- The GUI compiles with:
+
+cargo check -p nodex-gui
+
+21. Validation Checklist
+========================
+
+Run:
+
+cargo fmt --all -- --check
+cargo check -p nodex-gui
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+
+Manual checks:
+
+- Open a fresh account.
+- Restore an existing account.
+- Add a contact by User ID.
+- Add a contact by invite.
+- Open and move the profile drawer.
+- Open and move the add-contact dialog.
+- Select several chats.
+- Send short and long messages.
+- Send an image.
+- Test unread state.
+- Test failed-send state.
+- Resize the window.
+- Check the GUI at 960x600 and 1440x900.
+- Verify that technical diagnostics are not shown in normal chat.
+
+22. Final Design Goal
+====================
+
+NodeX should feel like a focused, trustworthy desktop messenger:
+
+- Telegram-like clarity in chat flow;
+- Discord-like organization of account and network settings;
+- original NodeX visual identity;
+- calm dark interface;
+- fast scanning of chats;
+- minimal technical noise;
+- real functionality preserved underneath the redesign.

@@ -1,0 +1,14 @@
+[Unit]
+Description=NodeX Kademlia DHT Relay & Bootstrap Node
+After=network.target
+
+[Service]
+Type=simple
+User=nodex
+ExecStart=/usr/local/bin/nodex --cli --port 8000
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

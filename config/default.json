@@ -1,0 +1,12 @@
+{
+  "port": 8000,
+  "ip": "0.0.0.0",
+  "k": 20,
+  "alpha": 3,
+  "t_expire": 86400,
+  "t_refresh": 3600,
+  "t_republish": 86400,
+  "rpc_timeout_ms": 1500,
+  "state_file": "nodex_state.json",
+  "bootstrap": []
+}
