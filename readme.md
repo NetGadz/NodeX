@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ NodeX
+#  NodeX
 
 ### Next-Generation Sovereign P2P Communications Engine
 **Zero Central Servers • End-to-End Cryptographic Sovereignty • Decentralized Kademlia Mesh • Stego-Carriers**
