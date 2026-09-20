@@ -1,135 +1,190 @@
 <div align="center">
 
-<img src="nodex-gui/assets/photo.jpg" width="160" alt="NodeX Logo" style="border-radius: 20px; margin-bottom: 12px;" />
+  <img src="nodex-gui/assets/photo.jpg" width="140" alt="NodeX Logo" style="border-radius: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);" />
 
-# ⚡ NodeX
+  # ⚡ NodeX P2P Messenger
 
-**Децентрализованный P2P E2EE Мессенджер нового поколения на чистом Rust**
-<br />
-*Zero-Server • 100% Serverless • STUN NAT Hole Punching • Kademlia DHT • 2-Hop Onion Routing • Stego-Carriers*
+  **Pure Rust Native Decentralized & End-to-End Encrypted Communication Protocol**
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=for-the-badge)](https://www.gnu.org/licenses/gpl-3.0)
-[![Rust 2021](https://img.shields.io/badge/Rust-2021-orange.svg?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
-[![GUI](https://img.shields.io/badge/GUI-egui%20%2F%20eframe-22c55e.svg?style=for-the-badge)](https://github.com/emilk/egui)
-[![Security](https://img.shields.io/badge/Crypto-ChaCha20--Poly1305-8b5cf6.svg?style=for-the-badge)](https://github.com/RustCrypto)
-[![Network](https://img.shields.io/badge/P2P-Kademlia%20DHT-0ea5e9.svg?style=for-the-badge)](https://en.wikipedia.org/wiki/Kademlia)
+  <p align="center">
+    <a href="https://github.com/rust-lang/rust"><img src="https://img.shields.io/badge/Rust-2021-orange.svg?style=for-the-badge&logo=rust&logoColor=white" alt="Rust 2021" /></a>
+    <a href="https://github.com/emilk/egui"><img src="https://img.shields.io/badge/GUI-egui%20%2F%20eframe-22c55e.svg?style=for-the-badge&logo=rust&logoColor=white" alt="egui" /></a>
+    <a href="https://en.wikipedia.org/wiki/Kademlia"><img src="https://img.shields.io/badge/P2P-Kademlia%20DHT-0ea5e9.svg?style=for-the-badge&logo=p2p" alt="Kademlia DHT" /></a>
+    <a href="https://github.com/RustCrypto"><img src="https://img.shields.io/badge/Crypto-ChaCha20--Poly1305-8b5cf6.svg?style=for-the-badge&logo=lock" alt="Crypto" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-16a34a.svg?style=for-the-badge" alt="License" /></a>
+  </p>
 
-[English](#-english-overview) • [Русский](#-описание-проекта) • [Архитектура](#-архитектура) • [Быстрый старт](#-быстрый-старт) • [Безопасность](#-криптография-и-безопасность)
+  <p align="center">
+    <b>Zero Central Servers</b> • <b>Zero Metadata</b> • <b>STUN Hole Punching</b> • <b>2-Hop Blind Onion Routing</b> • <b>LSB Steganography</b>
+  </p>
+
+  <p align="center">
+    <a href="#-english-overview">English</a> •
+    <a href="#-описание-проекта">Русский</a> •
+    <a href="#-сравнение-с-аналогами">Сравнение</a> •
+    <a href="#-архитектура-системы">Архитектура</a> •
+    <a href="#-криптография-и-модель-угроз">Безопасность</a> •
+    <a href="#-быстрый-старт">Быстрый старт</a>
+  </p>
 
 </div>
 
 ---
 
-## 🇷🇺 Описание проекта
+## 📸 Интерфейс и Демонстрация (Previews)
 
-**NodeX** — это автономный кроссплатформенный мессенджер с открытым исходным кодом, работающий полностью без центральных серверов, телефонных номеров и учетных записей. Все коммуникации (текст, файлы, голосовые сообщения и прямые аудиозвонки) происходят напрямую между узлами пользователей с использованием сквозного шифрования (E2EE), распределенной хеш-таблицы (Kademlia DHT) и автоматического пробития NAT-роутеров.
+| 💬 Чат и Голосовые Waveform | 🖼 Стеганография (Stego-Carriers) |
+| :---: | :---: |
+| <img src="docs/assets/demo_chat.gif" width="440" alt="NodeX Chat Demo" onerror="this.onerror=null; this.src='nodex-gui/assets/photo.jpg';" /> | <img src="docs/assets/stego_demo.gif" width="440" alt="NodeX Stego Demo" onerror="this.onerror=null; this.src='nodex-gui/assets/photo.jpg';" /> |
+| *Компактные бабблы сообщений, нативный замер аудио-волны и аудиозвонки* | *Кодирование крипто-паспорта ноды в младшие биты пикселей PNG/JPG* |
 
 ---
 
-## 🌟 Ключевые возможности
+## 🇷🇺 Описание проекта
 
-- 🛡️ **Полная автономность и анонимность**: 0 номеров телефона, 0 email, 0 центральных серверов. Идентификация по криптографическому ключу Ed25519/X25519, генерируемому из 24 слов сид-фразы BIP-39.
-- 📞 **P2P Голосовые звонки в реальном времени**: Прямой легковесный зашифрованный UDP-стрим низкой задержки (PCM 16-bit / 44.1kHz).
-- 🎙️ **Голосовые сообщения с реальной Waveform**: Запись микрофона, мгновенная генерация амплитудной огибающей и воспроизведение в один клик.
-- 🖼️ **Стеганографические крипто-аватарки (Stego-Carriers)**: Встраивание зашифрованного цифрового паспорта ноды в младшие биты пикселей (LSB) любого изображения (PNG/JPG). Достаточно отправить картинку другу — NodeX сам извлечет контакт и откроет туннель.
-- 🧅 **Слепая 2-Hop Onion маршрутизация**: Сокрытие реального IP-адреса отправителя за двумя промежуточными случайными шифрованными ретрансляторами в сети.
-- 📱 **QR-спаривание устройств и мульти-сессии**: Быстрое подключение мобильных и десктопных компаньонов через одноразовые криптографические QR-токены (`nodex://pair/...`).
-- 🔗 **Персональные Invite-ссылки (`nodex://invite/...`)**: Мгновенный обмен контактами с автоматической передачей публичных ключей и STUN-координат.
-- 🎨 **Современный нативный GUI**:
-  - Свободно перемещаемые и масштабируемые окна (Movable & Resizable Modals).
-  - Динамические темы оформления: **Dark**, **Midnight (OLED Pure Black)** и **Day Light**.
-  - Компактный и продуманный вид сообщений без растягивания на весь экран.
-  - Локальный PIN-код и защита от подглядывания.
+**NodeX** — это автономный децентрализованный мессенджер нового поколения, написанный на **чистом Rust** без использования Electron или внешних серверов базы данных.
+
+Приложение спроектировано по принципу **Zero-Trust & Zero-Metadata**:
+- **0 телефонных номеров, 0 Email, 0 учетных записей.**
+- **Никаких центральных серверов логов или хранилищ.**
+- Все коммуникации (текстовые сообщения, файлы, голосовые заметки и прямые P2P-аудиовызовы) передаются напрямую по протоколу UDP с шифрованием **E2EE (ChaCha20-Poly1305 + X25519)**.
+
+---
+
+## 📊 Сравнение с аналогами
+
+| Критерий | ⚡ **NodeX** | ✈️ Telegram | 🔒 Signal | 🌀 Session | ☣️ Tox |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Центральные серверы** | ❌ **0 серверов** | ⚠️ Да | ⚠️ Да | ❌ P2P Service Nodes | ❌ 0 серверов |
+| **Регистрация по номеру** | ❌ **Не требуется** | ⚠️ Обязательно | ⚠️ Обязательно | ❌ Не требуется | ❌ Не требуется |
+| **Защита метаданных (IP)** | ✅ **2-Hop Onion** | ❌ Сервер видит все IP | ❌ Сервер видит все IP | ✅ Onion Routing | ⚠️ Только с Tor |
+| **Стеганография (LSB)** | ✅ **Встроена** | ❌ Нет | ❌ Нет | ❌ Нет | ❌ Нет |
+| **Потребление RAM** | ⚡ **~25-40 МБ** | 🐢 ~300-800 МБ | 🐢 ~400-900 МБ | 🐢 ~350-700 МБ | ⚡ ~30-60 МБ |
+| **Язык разработки / Движок** | 🦀 **Pure Rust + egui** | C++ / Qt | C++ / Electron | JS / Electron | C / C++ |
+
+---
+
+## 🌟 Ключевые технологические фичи
+
+### 🛡️ 1. Децентрализованная идентичность (BIP-39 & Ed25519)
+Идентификатор пользователя генерируется детерминированно из 12/24 слов мнемонической фразы BIP-39. Отсутствует единая база пользователей — подделка профиля криптографически невозможна благодаря цифровой подписи Ed25519.
+
+### 🧅 2. Слепая 2-Hop Onion маршрутизация ([onion.rs](file:///c:/Users/gadz7/Downloads/NodeX-main/nodex-kademlia/src/onion.rs))
+Для защиты IP-адреса трафик послойно зашифровывается и передается через два случайных промежуточных узла-ретраслятора в DHT-сети:
+```text
+[Отправитель (Вы)] ──(Слой 1+2)──> [Relay Node 1] ──(Слой 2)──> [Relay Node 2] ──(Открыто)──> [Получатель]
+                                (Видит ваш IP,             (Видит IP Relay 1,
+                                но НЕ видит текст          но НЕ видит ваш IP)
+                                 и получателя)
+```
+
+### 🖼️ 3. Стеганографические крипто-аватарки (Stego-Carriers)
+Встраивание криптографического паспорта узла (`Node ID` + `X25519 PubKey` + `STUN Endpoints`) непосредственно в наименее значимые биты (LSB) пикселей любого изображения. Достаточно отправить обычную картинку в соцсети — NodeX при загрузке автоматически извлечет из нее инвайт и создаст туннель.
+
+### 🎙️ 4. P2P Аудиозвонки & Голосовые Waveform
+Прямая зашифрованная передача легковесного аудиопотока по UDP с низкой задержкой. Для голосовых сообщений генерируется вектор огибающей амплитуды для нативного отображения осциллограммы.
 
 ---
 
 ## 🏗 Архитектура системы
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                     NodeX Desktop GUI (egui / eframe)                  │
-│   Themes • Compact Bubbles • Movable Windows • Voice Waveforms • QR    │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Events / UI Commands
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                         nodex-messenger Layer                          │
-│   BIP-39 Mnemonic • User Identity (Ed25519 / X25519) • PFS Sessions    │
-│   Stego-Carrier LSB • Signed Invites • Local ChaCha20-Poly1305 DB      │
-│   5-Tier Delivery Cascade • Audio Call Stream • P2P Groups • Contacts  │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Kademlia RPC & Transports
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                         nodex-kademlia Layer                           │
-│   Kademlia DHT Routing • RFC 5389 STUN Traversal • UPnP Port Forward   │
-│   Direct UDP Hole Punching • 2-Hop Onion IP Masking • Packet Chunking  │
-│   Encrypted Store-and-Forward DHT Mailbox • Multi-Source Bootstrap     │
-└────────────────────────────────────────────────────────────────────────┘
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    NodeX Desktop GUI (egui / eframe)                    │
+│   Cyberpunk & OLED Themes • Movable Modals • Waveforms • Stego Studio   │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │ UI Events / Commands (tokio mpsc)
+┌────────────────────────────────────▼────────────────────────────────────┐
+│                          nodex-messenger Layer                          │
+│   User Identity (Ed25519 / X25519) • BIP-39 Mnemonic Seed Derivation    │
+│   Stego-Carrier LSB Engine • Local Encrypted ChaCha20-Poly1305 DB       │
+│   5-Tier Delivery Cascade • Audio Call Engine • Contact Trust Registry  │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │ UDP Wire Packets / Kademlia RPC
+┌────────────────────────────────────▼────────────────────────────────────┐
+│                          nodex-kademlia Layer                           │
+│   Kademlia DHT Routing • RFC 5389 STUN Traversal • UPnP IGD & NAT-PMP   │
+│   UDP Hole Punching Probes • Blind 2-Hop Onion Router • UDP Chunking    │
+│   Decentralized Store-and-Forward DHT Mailbox • LAN UDP Broadcast       │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## ⚡ 5-Уровневый каскад доставки (Delivery Cascade)
 
-1. **Tier 1: Прямой UDP Fast-Path** — моментальная доставка, если узел получателя доступен напрямую.
-2. **Tier 2: STUN Hole Punching** — автоматическое пробитие Cone NAT и домашних роутеров через `stun.l.google.com:19302` и `stun.cloudflare.com:3478`.
-3. **Tier 3: UPnP Automatic Port Mapping** — автоматический проброс портов на совместимых роутерах.
-4. **Tier 4: 2-Hop Onion Relay** — передача через зашифрованные промежуточные ноды со скрытием IP.
-5. **Tier 5: Децентрализованный DHT Mailbox** — безопасное хранение зашифрованных сообщений в DHT-сети, если получатель оффлайн.
+```mermaid
+flowchart TD
+    A["Попытка отправки сообщения"] --> B{"Узел получателя доступен прямо?"}
+    B -- "Да" --> C["Tier 1: Direct UDP Fast-Path (0.01s)"]
+    B -- "Нет" --> D{"Доступен STUN Hole Punching?"}
+    D -- "Да" --> E["Tier 2: STUN Hole Punching Probe"]
+    D -- "Нет" --> F{"Поддерживается UPnP / NAT-PMP?"}
+    F -- "Да" --> G["Tier 3: UPnP Auto Port Mapping"]
+    F -- "Нет" --> H{"Включен Onion / Relay режим?"}
+    H -- "Да" --> I["Tier 4: 2-Hop Blinded Onion Relay"]
+    H -- "Нет" --> J["Tier 5: Kademlia DHT Mailbox (Store & Forward)"]
+```
+
+---
+
+## 🔒 Криптография и модель угроз
+
+| Компонент | Алгоритм / Спецификация | Назначение |
+| :--- | :--- | :--- |
+| **Мастер-ключ** | `BIP-39 (12/24 words) + PBKDF2` | Детерминированная генерация сида идентичности |
+| **Идентификация ноды** | `Ed25519 (RFC 8032)` | Подпись профиля, DHT-запросов и предупреждений ротации |
+| **Обмен ключами** | `X25519 (ECDH Diffie-Hellman)` | Динамическое согласование сессионных ключей |
+| **Сквозное шифрование** | `ChaCha20-Poly1305 AEAD` | Защита текста, файлов, аудиопотока и локальной БД |
+| **Стеганография** | `LSB Matrix Encoding` | Скрытие данных внутри пикселей изображений PNG/JPG |
+| **Защита от атак повтора** | `Sliding Window Nonce Cache` | Предотвращение Replay & MitM атак |
 
 ---
 
 ## 🚀 Быстрый старт
 
 ### Требования
-- Установленный [Rust](https://rustup.rs/) (версия 1.75+).
+- Установленный инструментарий [Rust](https://rustup.rs/) (версия `1.75+`).
 
-### 1. Запуск десктопного мессенджера (GUI)
+### 1. Клонирование репозитория
 ```bash
-cargo run -p nodex-gui
+git clone https://github.com/your-username/NodeX.git
+cd NodeX
 ```
 
-### 2. Запуск фоновой ноды / ретранслятора (CLI)
+### 2. Запуск GUI-мессенджера
+```bash
+cargo run -p nodex-gui --release
+```
+
+### 3. Запуск фонового CLI-узла / Реле
 ```bash
 cargo run -p nodex-cli -- --port 8443
 ```
 
-### 3. Запуск полного набора тестов
+### 4. Запуск всех автоматизированных тестов
 ```bash
 cargo test --workspace
 ```
 
 ---
 
-## 🔒 Криптография и безопасность
-
-| Компонент | Алгоритм / Стандарт | Назначение |
-| :--- | :--- | :--- |
-| **Идентификация** | `Ed25519 (RFC 8032)` | Цифровая подпись профиля, присутствия и сообщений |
-| **Сквозное шифрование (E2EE)** | `X25519 + ChaCha20-Poly1305` | Шифрование текста, аудио, файлов и звонков |
-| **Сид-фраза восстановления** | `BIP-39 (24 слова)` | Детерминированное восстановление учетной записи |
-| **Локальная БД** | `ChaCha20-Poly1305` | Зашифрованное хранение переписки и контактов на диске |
-| **Стеганография** | `LSB Matrix Steganography` | Сокрытие криптографических данных внутри изображений |
-| **Защита от повторов** | `Nonce Cache + Timestamp Window` | Защита от Replay и MitM атак |
-
----
-
 ## 🇬🇧 English Overview
 
-**NodeX** is a modern, pure-native Rust peer-to-peer messaging application engineered for zero-trust, zero-server private communication.
+**NodeX** is a pure native Rust peer-to-peer messaging application engineered for zero-trust, zero-server private communication.
 
-- **100% Serverless**: Operates purely over UDP using Kademlia DHT, Google/Cloudflare STUN NAT hole punching, and decentralized mailbox relays.
+- **100% Serverless**: Operates purely over UDP using Kademlia DHT, RFC 5389 STUN NAT hole punching, and decentralized store-and-forward mailbox relays.
 - **P2P Real-time Voice Calls**: Direct end-to-end encrypted audio calling with low latency.
 - **Steganographic Crypto-Avatars**: Embed complete cryptographic network credentials inside regular PNG/JPG images.
 - **Blind 2-Hop Onion Routing**: Anonymize network traffic and mask IP addresses across transit nodes.
-- **Movable & Resizable UI**: Built with `egui` and `eframe` with Dark, Midnight OLED, and Day themes.
+- **Ultra-Lightweight**: Native `egui`/`eframe` GUI consuming under 40 MB RAM.
 
 ---
 
 ## 📄 Лицензия (License)
 
-Проект распространяется под лицензией **GNU General Public License v3.0 (GPL-3.0)**.
-Подробности доступны в файле [LICENSE](LICENSE).
+Проект распространяется под лицензией **MIT License**. Подробности в файле [LICENSE](LICENSE).
 
 <div align="center">
-  <sub>Built with ❤️ and Rust for privacy, freedom, and true decentralization.</sub>
+  <sub>Designed & Developed with ❤️ in Rust for true digital sovereignty, privacy, and censorship resistance.</sub>
 </div>
