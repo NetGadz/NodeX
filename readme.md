@@ -5,7 +5,7 @@
 ### Next-Generation Sovereign P2P Communications Engine
 **Zero Central Servers • End-to-End Cryptographic Sovereignty • Decentralized Kademlia Mesh • Stego-Carriers**
 
-[![Release](https://img.shields.io/github/v/release/NetGadz/NodeX?color=3b82f6&style=for-the-badge&logo=github)](https://github.com/NetGadz/NodeX/releases/latest)
+[![Release](https://img.shields.io/github/v/release/NetGadz/NodeX?color=3b82f6&style=for-the-badge&logo=github)](https://github.com/NetGadz/NodeX/releases)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/NetGadz/NodeX/release.yml?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/NetGadz/NodeX/actions)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL_3.0-10b981.svg?style=for-the-badge)](LICENSE)
 [![Rust 2021](https://img.shields.io/badge/Language-Rust_1.75+-orange.svg?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
@@ -13,13 +13,19 @@
 
 <br/>
 
-[📥 **Download NodeX for Windows (.exe)**](https://github.com/NetGadz/NodeX/releases/latest/download/NodeX.exe) • [📦 **Download ZIP Bundle (.zip)**](https://github.com/NetGadz/NodeX/releases/latest/download/NodeX-windows-x64.zip) • [📖 **Documentation**](#-architecture--5-tier-delivery-cascade) • [🛡️ **Security Model**](#-cryptographic--security-architecture)
+<p align="center">
+  <img src="assets/nodex_gui_showcase.jpg" alt="NodeX Desktop App Showcase" width="95%" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);" />
+</p>
+
+<br/>
+
+[🚀 **GitHub Releases & Downloads**](https://github.com/NetGadz/NodeX/releases) • [📥 **Download NodeX.exe**](https://github.com/NetGadz/NodeX/releases/tag/v1.0.0) • [📦 **Download ZIP Archive**](https://github.com/NetGadz/NodeX/releases/tag/v1.0.0) • [🛡️ **Security Model**](#-cryptographic--security-architecture)
 
 </div>
 
 ---
 
-## 📌 Executive Summary
+## 📌 Overview
 
 **NodeX** is a sovereign, serverless, peer-to-peer (P2P) desktop communication platform written from the ground up in modern **Rust**. 
 
@@ -27,18 +33,21 @@ Unlike conventional "secure" messengers that rely on centralized routing servers
 
 ---
 
-## 🚀 Quick Download & Installation
+## 🚀 Downloads (Windows x64)
 
-### Pre-Built Binaries (Windows x64)
-| Asset | Description | Direct Download Link |
+| Asset | Description | Direct Link |
 | :--- | :--- | :--- |
-| 🚀 **NodeX.exe** | Standalone production executable (Portable) | [**Download NodeX.exe**](https://github.com/NetGadz/NodeX/releases/latest/download/NodeX.exe) |
-| 📦 **NodeX-windows-x64.zip** | Full archive (Binary + Docs + License) | [**Download Archive (.zip)**](https://github.com/NetGadz/NodeX/releases/latest/download/NodeX-windows-x64.zip) |
-| 🌐 **GitHub Releases Page** | All tags, release notes, and checksums | [**View Releases**](https://github.com/NetGadz/NodeX/releases) |
+| 🚀 **NodeX.exe** | Standalone production executable (Portable) | [**Download via Release v1.0.0**](https://github.com/NetGadz/NodeX/releases/tag/v1.0.0) |
+| 📦 **NodeX-windows-x64.zip** | Full archive (Binary + Docs + License) | [**Download ZIP Package**](https://github.com/NetGadz/NodeX/releases/tag/v1.0.0) |
+| 🌐 **All Releases & Notes** | View changelog, checksums and previous builds | [**GitHub Releases Hub**](https://github.com/NetGadz/NodeX/releases) |
 
 ---
 
-## ✨ Key Architectural Highlights
+## ⚡ Real-Time P2P Mesh & 5-Tier Delivery Cascade
+
+<p align="center">
+  <img src="assets/nodex_live_cascade.svg" alt="NodeX Live Cascade Protocol" width="100%" />
+</p>
 
 ```mermaid
 graph TD
@@ -62,19 +71,23 @@ graph TD
 4. **Decentralized DHT Mailbox (Store-and-Forward)**: When a recipient is offline, encrypted blobs are sharded and deposited into Kademlia DHT neighborhood storage with time-to-live (TTL) expiration.
 5. **Steganographic Crypto-Carriers**: Out-of-band identity and credential transmission through covert LSB embedding inside standard images.
 
-### 3. 🎙️ Real-Time P2P Voice & Media Subsystem
-- **Direct Low-Latency Voice Calling**: Low-overhead UDP fast-path with sub-50ms latency.
-- **Encrypted Media Buffering**: Dedicated ring-buffer audio pipeline powered by `cpal` and `rodio` with non-blocking audio capture and playback.
-- **Dynamic Connection Recovery**: Seamless fallback if UDP ports or network interfaces switch mid-call.
+---
 
-### 4. 🖼️ Steganographic Crypto-Avatars (Stego-Carrier)
+## 🖼️ Steganographic Crypto-Avatars & DHT Swarm
+
+<p align="center">
+  <img src="assets/nodex_mesh_stego_showcase.jpg" alt="Steganographic Crypto-Avatars & Mesh" width="95%" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);" />
+</p>
+
 - **Deep LSB Encoding**: Embeds complete cryptographic contact descriptors (public keys, DHT rendezvous tokens, endpoints) invisibly inside 24-bit PNG/JPEG pixel matrices.
 - **Air-Gapped Contact Onboarding**: Share your contact avatar across regular public image hosting platforms or social channels without triggering DPI surveillance or metadata scrapers.
 
-### 5. 🎨 High-Performance Native UI
-- **Hardware-Accelerated Rendering**: Pure Rust interface rendered via `egui` and `eframe` (Glow/OpenGL backend).
-- **Movable & Resizable Workspaces**: Flexible floating modals for Network Statistics, Contact Discovery, Calls, and Group Management.
-- **Dynamic Themes**: Curated `Dark Space`, `Midnight OLED (True Black)`, and `Swiss Day Light` palettes with zero runtime performance cost.
+---
+
+## 🎙️ Real-Time P2P Voice & Media Subsystem
+- **Direct Low-Latency Voice Calling**: Low-overhead UDP fast-path with sub-50ms latency.
+- **Encrypted Media Buffering**: Dedicated ring-buffer audio pipeline powered by `cpal` and `rodio` with non-blocking audio capture and playback.
+- **Dynamic Connection Recovery**: Seamless fallback if UDP ports or network interfaces switch mid-call.
 
 ---
 
@@ -89,6 +102,7 @@ NodeX/
 ├── nodex-kademlia/     # Distributed Hash Table, Routing Table (k-buckets), RPC
 ├── nodex-cli/          # Headless daemon, management CLI and automation harness
 ├── core-ffi/           # C-compatible FFI bindings for mobile/cross-platform embedding
+├── assets/             # Vector diagrams, banners, and media showcases
 ├── .github/workflows/  # Automated CI/CD release build pipeline
 ├── LICENSE             # GNU General Public License v3.0
 └── Cargo.toml          # Workspace root manifest
