@@ -257,7 +257,12 @@ impl KadMessenger {
             let db = self.db.read().await;
             db.display_name.clone()
         };
-        let endpoints = vec![self.dht_node.network.local_addr];
+        let mut endpoints = vec![self.dht_node.network.local_addr];
+        if let Some(public_addr) = nodex_kademlia::stun::StunClient::query_reflexive_endpoint(&self.dht_node.network.socket).await {
+            if !endpoints.contains(&public_addr) {
+                endpoints.insert(0, public_addr);
+            }
+        }
         let ttl_secs = ttl_days.map(|d| d * 86400);
         crate::invite::InviteManager::create_invite(&identity, &display_name, endpoints, ttl_secs)
     }
@@ -662,12 +667,21 @@ impl KadMessenger {
             (db.display_name.clone(), db.bio.clone())
         };
 
+        let mut endpoints = vec![self.dht_node.network.local_addr];
+        let mut primary_addr = self.dht_node.network.local_addr;
+        if let Some(public_addr) = nodex_kademlia::stun::StunClient::query_reflexive_endpoint(&self.dht_node.network.socket).await {
+            if !endpoints.contains(&public_addr) {
+                endpoints.insert(0, public_addr);
+            }
+            primary_addr = public_addr;
+        }
+
         let card = UserPresenceCard::create_with_endpoints(
             &identity,
             display_name,
             bio,
-            self.dht_node.network.local_addr,
-            vec![self.dht_node.network.local_addr],
+            primary_addr,
+            endpoints,
             nodex_kademlia::nat_type::NatCategory::Unknown,
             timestamp,
         );

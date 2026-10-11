@@ -40,9 +40,18 @@ fn main() -> eframe::Result<()> {
 
     let (messenger_arc, initial_state) = rt.block_on(async {
         let mut config = NodeConfig::default();
+        config.ip = "0.0.0.0".into();
         config.port = args.port;
         if let Some(b) = &args.bootstrap {
             if let Ok(addr) = b.parse() {
+                if !config.bootstrap.contains(&addr) {
+                    config.bootstrap.push(addr);
+                }
+            }
+        }
+        // Ensure official genesis bootstrap node is always present
+        if let Ok(addr) = "31.77.71.122:8443".parse() {
+            if !config.bootstrap.contains(&addr) {
                 config.bootstrap.push(addr);
             }
         }
@@ -67,6 +76,9 @@ fn main() -> eframe::Result<()> {
                     let mn = messenger.get_mnemonic().await;
                     if !mn.is_empty() {
                         state.mnemonic_seed = mn;
+                    }
+                    if let Ok(invite) = messenger.create_invite_link(Some(30)).await {
+                        state.my_invite_link = invite;
                     }
 
                     // Background localhost peer discovery

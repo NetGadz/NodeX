@@ -1,5 +1,6 @@
 # Rust build artifacts
 target/
+.cargo/
 **/*.rs.bk
 *.pdb
 

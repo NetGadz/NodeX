@@ -93,6 +93,7 @@ impl Default for NetworkStats {
 #[allow(dead_code)]
 pub struct AppState {
     pub my_node_id: String,
+    pub my_invite_link: String,
     pub my_name: String,
     pub my_bio: String,
     pub mnemonic_seed: String,
@@ -209,6 +210,7 @@ impl AppState {
 
         Self {
             my_node_id: initial_id,
+            my_invite_link: String::new(),
             my_name: display_name,
             my_bio: "Decentralized P2P User".to_string(),
             mnemonic_seed: initial_mnemonic,

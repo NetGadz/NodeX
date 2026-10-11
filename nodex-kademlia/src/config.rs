@@ -15,12 +15,14 @@ pub struct NodeConfig {
     pub save_state_on_exit: bool,
 }
 
+pub const DEFAULT_BOOTSTRAP_NODES: &[&str] = &["31.77.71.122:8443"];
+
 impl Default for NodeConfig {
     fn default() -> Self {
         Self {
-            ip: "127.0.0.1".into(),
-            port: 8000,
-            bootstrap: Vec::new(),
+            ip: "0.0.0.0".into(),
+            port: 8443,
+            bootstrap: vec!["31.77.71.122:8443".parse().unwrap()],
             state_file: "node_state.json".into(),
             ttl_secs: 86400,        // 24 hours
             republish_secs: 3600,   // 1 hour

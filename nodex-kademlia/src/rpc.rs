@@ -383,7 +383,10 @@ impl NetworkManager {
         rand::random::<u64>()
     }
 
-    pub async fn send_message(&self, target: SocketAddr, msg: &RpcMessage) -> Result<(), String> {
+    pub async fn send_message(&self, mut target: SocketAddr, msg: &RpcMessage) -> Result<(), String> {
+        if target.ip().is_unspecified() {
+            target.set_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+        }
         let bytes = msg.encode()?;
         let msg_type = match msg.to_c_message() {
             Ok(c) => c.msg_type,
@@ -427,11 +430,14 @@ impl NetworkManager {
 
     pub async fn call(
         &self,
-        target: SocketAddr,
+        mut target: SocketAddr,
         payload: RpcPayload,
         timeout_dur: Duration,
         max_retries: usize,
     ) -> Result<RpcMessage, String> {
+        if target.ip().is_unspecified() {
+            target.set_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+        }
         let req_id = self.next_request_id();
         let msg = RpcMessage::new(req_id, self.local_id, payload);
 

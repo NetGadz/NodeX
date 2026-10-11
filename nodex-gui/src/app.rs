@@ -785,6 +785,10 @@ impl App for NodeXApp {
                 let peer_id = id.clone();
                 let custom_alias = alias.clone();
                 self.rt.spawn(async move {
+                    if let Ok(c) = msgr_clone.add_contact_by_invite(&peer_id).await {
+                        println!("[ADD_CONTACT] Verified and added invite contact: {} ({})", c.name, c.user_id_hex);
+                        return;
+                    }
                     if let Ok(card) = msgr_clone.discover_peer(&peer_id).await {
                         println!("[ADD_CONTACT] Discovered peer {} in DHT: {:?}", peer_id, card.display_name);
                     } else {

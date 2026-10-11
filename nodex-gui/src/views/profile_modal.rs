@@ -48,7 +48,11 @@ pub fn render_profile_modal(ctx: &egui::Context, state: &mut AppState, theme: &T
                 ui.add_space(14.0);
 
                 // Render QR code of the user's Invite Link
-                let invite_link = format!("nodex://invite/{}", state.my_node_id);
+                let invite_link = if !state.my_invite_link.is_empty() {
+                    state.my_invite_link.clone()
+                } else {
+                    format!("nodex://invite/{}", state.my_node_id)
+                };
                 draw_qr_code(ui, &invite_link, 170.0);
 
                 ui.add_space(10.0);

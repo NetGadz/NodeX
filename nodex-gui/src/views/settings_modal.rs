@@ -212,7 +212,11 @@ fn render_account_tab(
         .inner_margin(Margin::same(8.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                let invite_link = format!("nodex://invite/{}", state.my_node_id);
+                let invite_link = if !state.my_invite_link.is_empty() {
+                    state.my_invite_link.clone()
+                } else {
+                    format!("nodex://invite/{}", state.my_node_id)
+                };
                 if ui.button(egui::RichText::new("📋 Скопировать Invite").size(10.5).strong().color(theme.accent)).clicked() {
                     ui.output_mut(|o| o.copied_text = invite_link.clone());
                     state.audio_player.play_sent_sound();

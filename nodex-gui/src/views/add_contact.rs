@@ -101,7 +101,12 @@ pub fn render_add_contact_modal(
                 .rounding(Rounding::same(8.0));
 
                 if ui.add(share_btn).clicked() {
-                    ui.output_mut(|o| o.copied_text = format!("nodex://invite/{}", state.my_node_id));
+                    let link = if !state.my_invite_link.is_empty() {
+                        state.my_invite_link.clone()
+                    } else {
+                        format!("nodex://invite/{}", state.my_node_id)
+                    };
+                    ui.output_mut(|o| o.copied_text = link);
                     state.audio_player.play_sent_sound();
                 }
             });
