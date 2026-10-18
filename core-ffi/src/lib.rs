@@ -446,6 +446,19 @@ pub fn ffi_mnemonic_to_seed(mnemonic_str: &str) -> Result<[u8; 32], String> {
     Ok(seed_32)
 }
 
+/// Derive the NodeX identity from a BIP-39 phrase using the same HKDF key paths
+/// as nodex-messenger, then return SHA-1(Ed25519 public key) as the 20-byte ID.
+pub fn ffi_mnemonic_to_node_id(mnemonic_str: &str) -> Result<[u8; ID_SIZE], String> {
+    use sha2::Sha256;
+    let seed = ffi_mnemonic_to_seed(mnemonic_str)?;
+    let hk = hkdf::Hkdf::<Sha256>::new(None, &seed);
+    let mut ed25519_seed = [0u8; 32];
+    hk.expand(b"NodeX-Ed25519-Sign-v1", &mut ed25519_seed)
+        .map_err(|e| format!("HKDF expand failed: {:?}", e))?;
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&ed25519_seed);
+    Ok(ffi_hash_node_id(signing_key.verifying_key().as_bytes()))
+}
+
 /// Validate a 12-word mnemonic phrase. Returns true if valid.
 pub fn ffi_mnemonic_validate(mnemonic_str: &str) -> bool {
     bip39::Mnemonic::parse(mnemonic_str.trim()).is_ok()
@@ -521,5 +534,3 @@ mod tests {
         }
     }
 }
-
-

@@ -6,6 +6,7 @@ use crate::db::SavedChatMessage;
 use crate::message_status::MessageStatus;
 
 pub const MAX_RETRY_ATTEMPTS: u32 = 6;
+pub const MAX_QUEUED_MESSAGES: usize = 100;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct QueuedMessage {
@@ -27,9 +28,17 @@ impl MessageQueue {
     }
 
     pub async fn push(&self, msg: SavedChatMessage, recipient_id: String) {
+        self.push_after(msg, recipient_id, 0).await;
+    }
+
+    pub async fn push_after(&self, msg: SavedChatMessage, recipient_id: String, delay_secs: u64) {
         let mut q = self.queue.write().await;
         // Avoid duplicate queuing
         if q.iter().any(|m| m.message.id == msg.id) {
+            return;
+        }
+        if q.len() >= MAX_QUEUED_MESSAGES {
+            eprintln!("[QUEUE] Outbox is full; cannot queue message {}", msg.id);
             return;
         }
         q.push_back(QueuedMessage {
@@ -37,7 +46,7 @@ impl MessageQueue {
             recipient_id,
             attempts: 0,
             status: MessageStatus::Sending,
-            next_retry_at: 0,
+            next_retry_at: current_timestamp().saturating_add(delay_secs),
         });
     }
 
@@ -57,8 +66,8 @@ impl MessageQueue {
             queued.status = MessageStatus::Failed;
             println!("[QUEUE] Message {} reached max retries ({}), marked as Failed", queued.message.id, MAX_RETRY_ATTEMPTS);
         } else {
-            // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 64s
-            let backoff_secs = 2u64.pow(queued.attempts.min(6));
+            // Exponential backoff: 2s, 4s, 8s, 16s, 32s (then stop at the retry cap).
+            let backoff_secs = 2u64.pow(queued.attempts.min(5)).min(32);
             queued.next_retry_at = now + backoff_secs;
             queued.status = MessageStatus::Sending;
             println!(
@@ -89,5 +98,12 @@ impl MessageQueue {
     pub async fn get_all(&self) -> Vec<QueuedMessage> {
         self.queue.read().await.iter().cloned().collect()
     }
+}
+
+fn current_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 

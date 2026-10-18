@@ -1,0 +1,16 @@
+[package]
+name = "nodex-crypto"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nodex-types = { path = "../nodex-types" }
+ed25519-dalek = { version = "2.1", features = ["serde", "rand_core"] }
+blake3 = "1.5"
+bip39 = "2.0"
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+rand = "0.8"

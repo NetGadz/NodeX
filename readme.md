@@ -4,7 +4,7 @@
 
   # ⚡ NodeX P2P Messenger
 
-  **Pure Rust Native Decentralized & End-to-End Encrypted Communication Protocol**
+  **P2P Messenger with a Native Rust Desktop Client and Android App**
 
   <p align="center">
     <a href="https://github.com/NetGadz/NodeX/releases/latest/download/NodeX-Windows-x64.exe">
@@ -21,7 +21,7 @@
   </p>
 
   <p align="center">
-    <b>Zero Central Servers</b> • <b>Zero Metadata</b> • <b>STUN Hole Punching</b> • <b>2-Hop Blind Onion Routing</b> • <b>LSB Steganography</b>
+    <b>No Phone Number Required</b> • <b>End-to-End Encryption</b> • <b>P2P Transport</b> • <b>Bootstrap-Assisted Discovery</b>
   </p>
 
   <p align="center">
@@ -65,12 +65,24 @@
 
 ## 🇷🇺 Описание проекта
 
-**NodeX** — это автономный децентрализованный мессенджер нового поколения, написанный на **чистом Rust** без использования Electron или внешних серверов базы данных.
+**NodeX** — P2P-мессенджер с настольным клиентом на **Rust** и Android-клиентом на **Kotlin / Jetpack Compose**. Для обнаружения узлов используется bootstrap-узел; доставка может использовать временное DHT-хранилище, пока получатель не в сети.
 
 Приложение спроектировано по принципу **Zero-Trust & Zero-Metadata**:
 - **0 телефонных номеров, 0 Email, 0 учетных записей.**
-- **Никаких центральных серверов логов или хранилищ.**
-- Все коммуникации (текстовые сообщения, файлы, голосовые заметки и прямые P2P-аудиовызовы) передаются напрямую по протоколу UDP с шифрованием **E2EE (ChaCha20-Poly1305 + X25519)**.
+- **Не требуется номер телефона или электронная почта.**
+- Узлы находят друг друга через bootstrap и Kademlia DHT; при недоступности получателя доставка может проходить через временный mailbox в DHT.
+- Сообщения и вложения шифруются сквозным шифрованием. Реальный маршрут зависит от сети, NAT и доступности узлов.
+
+### Android-клиент
+
+Исходники Android-приложения находятся в [`nodex-android/`](nodex-android/). Для локальной сборки нужен JDK 17 и Android SDK:
+
+```powershell
+cd nodex-android
+.\gradlew.bat assembleDebug
+```
+
+APK появится в `app/build/outputs/apk/debug/app-debug.apk`.
 
 ---
 
@@ -92,8 +104,8 @@
 ### 🛡️ 1. Децентрализованная идентичность (BIP-39 & Ed25519)
 Идентификатор пользователя генерируется детерминированно из 12/24 слов мнемонической фразы BIP-39. Отсутствует единая база пользователей — подделка профиля криптографически невозможна благодаря цифровой подписи Ed25519.
 
-### 🧅 2. Слепая 2-Hop Onion маршрутизация ([onion.rs](file:///c:/Users/gadz7/Downloads/NodeX-main/nodex-kademlia/src/onion.rs))
-Для защиты IP-адреса трафик послойно зашифровывается и передается через два случайных промежуточных узла-ретраслятора в DHT-сети:
+### 🧅 2. Слепая 2-Hop Onion маршрутизация ([onion.rs](nodex-kademlia/src/onion.rs))
+При включённом onion-режиме трафик послойно зашифровывается и передается через промежуточные узлы:
 ```text
 [Отправитель (Вы)] ──(Слой 1+2)──> [Relay Node 1] ──(Слой 2)──> [Relay Node 2] ──(Открыто)──> [Получатель]
                                 (Видит ваш IP,             (Видит IP Relay 1,

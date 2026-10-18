@@ -1,4 +1,4 @@
-use egui::{vec2, Align2, Color32, Margin, Rounding, ScrollArea, Stroke, Vec2, Window};
+use egui::{vec2, Align2, Color32, Margin, Rounding, ScrollArea, Sense, Stroke, Vec2, Window};
 use crate::components::avatar::draw_avatar;
 use crate::components::qr_view::draw_qr_code;
 use crate::state::{AppState, ThemeMode};
@@ -8,11 +8,13 @@ use crate::theme::Theme;
 pub enum SettingsCategory {
     Account,
     Sessions,
+    Appearance,
     Notifications,
     Privacy,
     Chat,
     Folders,
     Network,
+    Advanced,
 }
 
 pub fn render_settings_modal(
@@ -44,8 +46,8 @@ pub fn render_settings_modal(
         .movable(true)
         .default_pos(screen_center)
         .pivot(Align2::CENTER_CENTER)
-        .default_size(vec2(600.0, 460.0))
-        .min_size(vec2(480.0, 360.0))
+        .default_size(vec2(660.0, 520.0))
+        .min_size(vec2(520.0, 400.0))
         .frame(
             egui::Frame::window(&ctx.style())
                 .fill(theme.card_bg)
@@ -56,23 +58,25 @@ pub fn render_settings_modal(
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 // LEFT SIDEBAR: CATEGORIES
-                ui.allocate_ui(vec2(165.0, ui.available_height()), |ui| {
+                ui.allocate_ui(vec2(175.0, ui.available_height()), |ui| {
                     ui.vertical(|ui| {
                         let categories = [
                             (SettingsCategory::Account, "👤  Мой аккаунт"),
                             (SettingsCategory::Sessions, "📱  Устройства и сессии"),
+                            (SettingsCategory::Appearance, "🎨  Темы и оформление"),
                             (SettingsCategory::Notifications, "🔔  Уведомления и звуки"),
                             (SettingsCategory::Privacy, "🔒  Конфиденциальность"),
-                            (SettingsCategory::Chat, "💬  Настройки чатов"),
+                            (SettingsCategory::Chat, "💬  Настройки диалогов"),
                             (SettingsCategory::Folders, "📁  Папки с чатами"),
-                            (SettingsCategory::Network, "🌐  Сеть и DHT"),
+                            (SettingsCategory::Network, "🌐  Сеть DHT и P2P"),
+                            (SettingsCategory::Advanced, "🎛  Продвинутые настройки"),
                         ];
 
                         for (cat, label) in categories {
                             let is_active = current_tab == cat;
                             let btn = egui::Button::new(
                                 egui::RichText::new(label)
-                                    .size(11.5)
+                                    .size(11.0)
                                     .strong()
                                     .color(if is_active { Color32::WHITE } else { theme.text_primary }),
                             )
@@ -105,6 +109,9 @@ pub fn render_settings_modal(
                                     SettingsCategory::Sessions => {
                                         render_sessions_tab(ui, state, theme);
                                     }
+                                    SettingsCategory::Appearance => {
+                                        render_appearance_tab(ui, state, theme, ctx);
+                                    }
                                     SettingsCategory::Notifications => {
                                         render_notifications_tab(ui, state, theme);
                                     }
@@ -112,13 +119,16 @@ pub fn render_settings_modal(
                                         render_privacy_tab(ui, state, theme);
                                     }
                                     SettingsCategory::Chat => {
-                                        render_chat_tab(ui, state, theme, ctx);
+                                        render_chat_tab(ui, state, theme);
                                     }
                                     SettingsCategory::Folders => {
                                         render_folders_tab(ui, state, theme);
                                     }
                                     SettingsCategory::Network => {
                                         render_network_tab(ui, state, theme);
+                                    }
+                                    SettingsCategory::Advanced => {
+                                        render_advanced_tab(ui, state, theme);
                                     }
                                 }
 
@@ -253,85 +263,250 @@ fn render_account_tab(
 
     ui.add_space(6.0);
 
-    // Seed phrase reveal
-    if !state.reveal_seed_in_settings {
-        if ui.button(egui::RichText::new("🔑 Показать Seed-фразу (24 слова)").size(10.5)).clicked() {
-            state.reveal_seed_in_settings = true;
-        }
-    } else {
-        egui::Frame::none()
-            .fill(theme.bubble_other_bg)
-            .rounding(Rounding::same(6.0))
-            .stroke(Stroke::new(1.0_f32, theme.border_color))
-            .inner_margin(Margin::same(6.0))
-            .show(ui, |ui| {
-                let words: Vec<&str> = state.mnemonic_seed.split_whitespace().collect();
-                egui::Grid::new("seed_grid_settings").num_columns(4).spacing(vec2(4.0, 2.0)).show(ui, |ui| {
-                    for (i, w) in words.iter().enumerate() {
-                        ui.label(egui::RichText::new(format!("{:02}. {}", i + 1, w)).size(9.5).color(theme.accent));
-                        if (i + 1) % 4 == 0 {
-                            ui.end_row();
-                        }
+    // Seed phrase reveal & Security modal
+    egui::Frame::none()
+        .fill(theme.bubble_other_bg)
+        .rounding(Rounding::same(8.0))
+        .stroke(Stroke::new(1.0_f32, theme.border_color))
+        .inner_margin(Margin::same(10.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("🔐").size(18.0));
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new("Секретная Seed-фраза и защита").strong().size(12.0).color(theme.text_primary));
+                    ui.label(egui::RichText::new("12 или 24 слова для восстановления и рекомендация по установке пароля").size(10.5).color(theme.text_muted));
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let open_btn = egui::Button::new(
+                        egui::RichText::new("Открыть").size(11.0).strong().color(Color32::WHITE)
+                    )
+                    .fill(theme.accent)
+                    .rounding(Rounding::same(6.0));
+
+                    if ui.add(open_btn).clicked() {
+                        state.modals.show_mnemonic_modal = true;
                     }
                 });
             });
-        ui.add_space(3.0);
-        ui.horizontal(|ui| {
-            if ui.button(egui::RichText::new("[ Копировать ]").size(10.0)).clicked() {
-                ui.output_mut(|o| o.copied_text = state.mnemonic_seed.clone());
-            }
-            if ui.button(egui::RichText::new("[ Скрыть ]").size(10.0)).clicked() {
-                state.reveal_seed_in_settings = false;
-            }
         });
-    }
 }
 
 fn render_sessions_tab(ui: &mut egui::Ui, state: &mut AppState, theme: &Theme) {
-    ui.label(egui::RichText::new("Устройства и сессии").size(13.0).strong().color(theme.text_primary));
-    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("📱 Устройства и сессии").size(14.0).strong().color(theme.text_primary));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button(egui::RichText::new("🔑 Seed-фраза").size(10.5).color(theme.accent)).clicked() {
+                state.modals.show_mnemonic_modal = true;
+            }
+        });
+    });
+    ui.label(egui::RichText::new("Управляйте устройствами, подключенными к вашей учетной записи. Смахните сессию влево для ручного удаления/завершения.").size(10.5).color(theme.text_muted));
+    ui.add_space(8.0);
 
-    // Current Session
+    // Current Session Section
+    ui.label(egui::RichText::new("ЭТО УСТРОЙСТВО (ТЕКУЩИЙ СЕАНС)").size(10.0).strong().color(theme.accent));
+    ui.add_space(3.0);
+
+    let current_session = state.device_sessions.iter().find(|s| s.is_current).cloned();
     egui::Frame::none()
-        .fill(theme.bubble_other_bg)
-        .rounding(Rounding::same(6.0))
-        .stroke(Stroke::new(1.0_f32, theme.online_indicator))
-        .inner_margin(Margin::same(8.0))
+        .fill(Color32::from_rgb(22, 30, 43))
+        .rounding(Rounding::same(10.0))
+        .stroke(Stroke::new(1.2_f32, theme.online_indicator))
+        .inner_margin(Margin::same(10.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("💻").size(16.0));
-                ui.label(egui::RichText::new("Windows Desktop (Текущее)").strong().size(11.5).color(theme.text_primary));
-                ui.label(egui::RichText::new(format!("UDP {}", state.port)).size(10.0).color(theme.text_muted));
+                ui.label(egui::RichText::new("💻").size(24.0));
+                ui.add_space(4.0);
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        let name = current_session.as_ref().map(|s| s.device_name.as_str()).unwrap_or("Windows Desktop");
+                        ui.label(egui::RichText::new(name).strong().size(12.5).color(Color32::WHITE));
+                        ui.label(egui::RichText::new("• Онлайн").size(10.5).color(theme.online_indicator).strong());
+                    });
+                    let ver = current_session.as_ref().map(|s| s.app_version.as_str()).unwrap_or("NodeX v0.1.0");
+                    ui.label(egui::RichText::new(ver).size(10.5).color(theme.text_muted));
+                    let ip = current_session.as_ref().map(|s| s.location_ip.as_str()).unwrap_or("127.0.0.1 (Текущий)");
+                    ui.label(egui::RichText::new(ip).size(10.0).color(theme.text_muted));
+                });
             });
         });
 
-    ui.add_space(6.0);
+    ui.add_space(10.0);
 
-    // Link by QR code
+    // Other Active Sessions Section
+    let other_count = state.device_sessions.iter().filter(|s| !s.is_current).count();
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(format!("АКТИВНЫЕ СЕАНСЫ ({})", other_count)).size(10.0).strong().color(theme.text_muted));
+
+        if other_count > 0 {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let terminate_all_btn = egui::Button::new(
+                    egui::RichText::new("Завершить все другие сеансы").size(10.0).color(Color32::from_rgb(239, 68, 68))
+                )
+                .fill(Color32::TRANSPARENT);
+
+                if ui.add(terminate_all_btn).clicked() {
+                    state.modals.show_delete_session_confirm = Some("all_other_sessions".to_string());
+                }
+            });
+        }
+    });
+    ui.add_space(4.0);
+
+    if other_count == 0 {
+        egui::Frame::none()
+            .fill(theme.bubble_other_bg)
+            .rounding(Rounding::same(8.0))
+            .stroke(Stroke::new(1.0_f32, theme.border_color))
+            .inner_margin(Margin::same(12.0))
+            .show(ui, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.label(egui::RichText::new("Нет других активных сессий").size(11.5).color(theme.text_muted));
+                    ui.label(egui::RichText::new("Используйте QR-код ниже для входа на телефоне или ноутбуке").size(10.0).color(theme.text_muted));
+                });
+            });
+    } else {
+        // Render each device session with swipe-left gesture
+        let other_sessions: Vec<crate::state::AccountDeviceSession> = state.device_sessions.iter().filter(|s| !s.is_current).cloned().collect();
+
+        for sess in other_sessions {
+            let item_w = ui.available_width();
+            let (rect, resp) = ui.allocate_exact_size(Vec2::new(item_w, 58.0), Sense::click_and_drag());
+
+            let swipe_key = format!("device_{}", sess.id);
+            let current_offset = state.swipe_offsets.entry(swipe_key.clone()).or_insert(0.0);
+
+            if resp.dragged() {
+                let delta = resp.drag_delta().x;
+                *current_offset = (*current_offset + delta).clamp(-90.0, 0.0);
+            } else {
+                if *current_offset < -35.0 {
+                    *current_offset = -75.0;
+                } else {
+                    *current_offset = 0.0;
+                }
+            }
+
+            let is_swiped_open = *current_offset <= -40.0;
+
+            // Background red delete button revealed on left swipe
+            if *current_offset < -2.0 {
+                let reveal_w = (-*current_offset).min(rect.width());
+                let delete_box = egui::Rect::from_min_max(
+                    egui::pos2(rect.max.x - reveal_w, rect.min.y),
+                    rect.max,
+                );
+                ui.painter().rect_filled(delete_box, Rounding::same(10.0), Color32::from_rgb(220, 38, 38));
+
+                if reveal_w >= 45.0 {
+                    ui.painter().text(
+                        delete_box.center() + egui::vec2(0.0, -6.0),
+                        Align2::CENTER_CENTER,
+                        "🗑",
+                        egui::FontId::proportional(17.0),
+                        Color32::WHITE,
+                    );
+                    ui.painter().text(
+                        delete_box.center() + egui::vec2(0.0, 10.0),
+                        Align2::CENTER_CENTER,
+                        "Удалить",
+                        egui::FontId::proportional(10.0),
+                        Color32::WHITE,
+                    );
+                }
+            }
+
+            if resp.clicked() {
+                if is_swiped_open {
+                    let click_pos = resp.interact_pointer_pos().unwrap_or(rect.min);
+                    if click_pos.x >= rect.max.x - 80.0 {
+                        state.modals.show_delete_session_confirm = Some(sess.id.clone());
+                    }
+                    *current_offset = 0.0;
+                }
+            }
+
+            // Foreground card shifted by current_offset
+            let content_rect = egui::Rect::from_min_size(
+                egui::pos2(rect.min.x + *current_offset, rect.min.y),
+                rect.size(),
+            );
+
+            let is_hover = resp.hovered();
+            let bg_color = if is_hover { Color32::from_rgb(26, 35, 48) } else { theme.bubble_other_bg };
+
+            ui.painter().rect_filled(content_rect, Rounding::same(10.0), bg_color);
+            ui.painter().rect_stroke(content_rect, Rounding::same(10.0), Stroke::new(1.0_f32, if is_hover { theme.accent } else { theme.border_color }));
+
+            let inner_rect = content_rect.shrink2(egui::vec2(10.0, 5.0));
+            let mut child_ui = ui.child_ui(
+                inner_rect,
+                egui::Layout::left_to_right(egui::Align::Center),
+                None,
+            );
+
+            child_ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(&sess.platform_icon).size(20.0));
+                ui.add_space(6.0);
+
+                ui.vertical(|ui| {
+                    ui.set_width(ui.available_width() - 40.0);
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(&sess.device_name).strong().size(12.0).color(theme.text_primary));
+                    });
+                    ui.label(egui::RichText::new(&sess.app_version).size(10.0).color(theme.text_muted));
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(&sess.location_ip).size(9.5).color(theme.text_muted));
+                        ui.label(egui::RichText::new(format!("• {}", sess.last_active_str)).size(9.5).color(theme.text_muted));
+                    });
+                });
+
+                // Small delete button on the right edge of the card for direct mouse clicks too
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(egui::RichText::new("✕").size(11.0).color(Color32::from_rgb(239, 68, 68))).clicked() {
+                        state.modals.show_delete_session_confirm = Some(sess.id.clone());
+                    }
+                });
+            });
+
+            ui.add_space(4.0);
+        }
+    }
+
+    ui.add_space(10.0);
+
+    // Link by QR code / Seed phrase
     egui::Frame::none()
         .fill(theme.bubble_other_bg)
-        .rounding(Rounding::same(6.0))
+        .rounding(Rounding::same(8.0))
         .stroke(Stroke::new(1.0_f32, theme.border_color))
-        .inner_margin(Margin::same(8.0))
+        .inner_margin(Margin::same(10.0))
         .show(ui, |ui| {
-            ui.label(egui::RichText::new("🔗  Спаривание по QR").strong().size(11.5).color(theme.accent));
+            ui.label(egui::RichText::new("🔗  Подключение нового устройства").strong().size(12.0).color(theme.accent));
+            ui.label(egui::RichText::new("Отсканируйте QR-код вторым устройством или авторизуйтесь через 12-24 слова Seed-фразы.").size(10.5).color(theme.text_muted));
 
             if state.session_pair_token.is_empty() {
                 state.session_pair_token = format!("nodex://pair/{}/{}", state.my_node_id, rand::random::<u32>());
             }
 
+            ui.add_space(6.0);
             ui.vertical_centered(|ui| {
-                draw_qr_code(ui, &state.session_pair_token, 110.0);
+                draw_qr_code(ui, &state.session_pair_token, 100.0);
             });
 
-            ui.add_space(4.0);
+            ui.add_space(6.0);
             ui.horizontal(|ui| {
-                if ui.button(egui::RichText::new("[ Новый токен ]").size(10.0)).clicked() {
+                if ui.button(egui::RichText::new("🔄 Обновить токен").size(10.0)).clicked() {
                     state.session_pair_token = format!("nodex://pair/{}/{}", state.my_node_id, rand::random::<u32>());
                 }
-                if ui.button(egui::RichText::new("[ Копировать ]").size(10.0)).clicked() {
+                if ui.button(egui::RichText::new("📋 Скопировать ссылку").size(10.0)).clicked() {
                     ui.output_mut(|o| o.copied_text = state.session_pair_token.clone());
                 }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(egui::RichText::new("🔑 12-24 слова").size(10.0).strong().color(theme.accent)).clicked() {
+                        state.modals.show_mnemonic_modal = true;
+                    }
+                });
             });
         });
 }
@@ -346,9 +521,11 @@ fn render_notifications_tab(ui: &mut egui::Ui, state: &mut AppState, theme: &The
         .stroke(Stroke::new(1.0_f32, theme.border_color))
         .inner_margin(Margin::same(8.0))
         .show(ui, |ui| {
-            ui.checkbox(&mut state.notifications_enabled, "Звуки сообщений");
+            ui.checkbox(&mut state.notifications_enabled, "Включить Push-уведомления сверху и звуки");
+            ui.label(egui::RichText::new("Показывает всплывающие интерактивные баннеры входящих сообщений в верхней части экрана").size(10.0).color(theme.text_muted));
+            ui.add_space(4.0);
             ui.checkbox(&mut state.ringtone_enabled, "Звук входящего вызова");
-            ui.checkbox(&mut state.zen_mode, "Режим «Не беспокоить»");
+            ui.checkbox(&mut state.zen_mode, "Режим «Не беспокоить» (без звуков и баннеров)");
 
             ui.add_space(6.0);
             ui.separator();
@@ -433,71 +610,361 @@ fn render_privacy_tab(ui: &mut egui::Ui, state: &mut AppState, theme: &Theme) {
         });
 }
 
-fn render_chat_tab(ui: &mut egui::Ui, state: &mut AppState, theme: &Theme, ctx: &egui::Context) {
-    ui.label(egui::RichText::new("Вид и Настройки чатов").size(13.0).strong().color(theme.text_primary));
-    ui.add_space(4.0);
+fn render_chat_tab(ui: &mut egui::Ui, state: &mut AppState, theme: &Theme) {
+    ui.label(egui::RichText::new("Настройки диалогов и сообщений").size(14.0).strong().color(theme.text_primary));
+    ui.add_space(6.0);
 
     egui::Frame::none()
         .fill(theme.bubble_other_bg)
-        .rounding(Rounding::same(6.0))
+        .rounding(Rounding::same(8.0))
         .stroke(Stroke::new(1.0_f32, theme.border_color))
-        .inner_margin(Margin::same(8.0))
+        .inner_margin(Margin::same(12.0))
         .show(ui, |ui| {
-            // Theme selection with crystal-clear high-contrast buttons
-            ui.label(egui::RichText::new("Тема оформления:").size(11.0).strong().color(theme.text_primary));
-            ui.add_space(2.0);
+            ui.label(egui::RichText::new("ПОВЕДЕНИЕ ВВОДА").size(10.0).strong().color(theme.accent));
+            ui.add_space(4.0);
+            ui.checkbox(&mut state.send_on_enter, "Отправка сообщения по Enter (Shift+Enter — новая строка)");
+            ui.checkbox(&mut state.compact_bubbles, "Компактный режим пузырей сообщений");
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            ui.label(egui::RichText::new("АВТОЗАГРУЗКА МЕДИА И ФАЙЛОВ").size(10.0).strong().color(theme.accent));
+            ui.add_space(4.0);
+            ui.checkbox(&mut state.auto_download_media, "Автозагрузка фото и видео файлов");
+            ui.checkbox(&mut state.auto_download_voice, "Автозагрузка голосовых сообщений");
+            ui.checkbox(&mut state.auto_download_files, "Автозагрузка вложенных документов и торрентов");
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            ui.label(egui::RichText::new("ТАЙМЕР САМОУНИЧТОЖЕНИЯ СООБЩЕНИЙ").size(10.0).strong().color(theme.accent));
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
-                let modes = [
-                    (ThemeMode::Dark, "🌙 Dark"),
-                    (ThemeMode::Midnight, "⬛ Midnight"),
-                    (ThemeMode::Day, "☀️ Day Light"),
+                let options = [
+                    (0_u64, "Отключен"),
+                    (86400_u64, "24 часа"),
+                    (604800_u64, "7 дней"),
+                    (2592000_u64, "30 дней"),
                 ];
-                for (mode, label) in modes {
-                    let is_active = state.theme_mode == mode;
+                for (secs, lbl) in options {
+                    let is_active = state.auto_delete_secs == secs;
                     let btn = egui::Button::new(
-                        egui::RichText::new(label)
+                        egui::RichText::new(lbl)
                             .size(10.5)
-                            .strong()
-                            .color(if is_active { Color32::WHITE } else { theme.text_muted }),
+                            .color(if is_active { Color32::WHITE } else { theme.text_muted })
                     )
                     .fill(if is_active { theme.accent } else { theme.card_bg })
-                    .stroke(if is_active { Stroke::NONE } else { Stroke::new(1.0_f32, theme.border_color) })
                     .rounding(Rounding::same(5.0));
 
                     if ui.add(btn).clicked() {
-                        state.theme_mode = mode;
-                        let new_theme = Theme::from_mode(mode);
-                        new_theme.apply_to_ctx(ctx);
+                        state.auto_delete_secs = secs;
                     }
                 }
             });
 
-            ui.add_space(6.0);
+            ui.add_space(8.0);
             ui.separator();
-            ui.add_space(4.0);
+            ui.add_space(6.0);
 
-            ui.label(egui::RichText::new("Размер шрифта:").size(11.0).strong().color(theme.text_primary));
+            ui.label(egui::RichText::new("МОДУЛЯТОР ГОЛОСА В ЗВОНКАХ").size(10.0).strong().color(theme.accent));
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
-                for (size, label) in [(12.0_f32, "12px"), (13.5_f32, "13.5px"), (15.5_f32, "15.5px")] {
-                    let is_active = (state.chat_font_size - size).abs() < 0.1;
+                let modulators = [
+                    ("normal", "Оригинал"),
+                    ("robot", "Робот"),
+                    ("deep", "Бас"),
+                    ("crypto", "Крипто-модулятор"),
+                ];
+                for (val, lbl) in modulators {
+                    let is_active = state.voice_modulator == val;
                     let btn = egui::Button::new(
-                        egui::RichText::new(label)
-                            .size(10.0)
-                            .color(if is_active { Color32::WHITE } else { theme.text_muted }),
+                        egui::RichText::new(lbl)
+                            .size(10.5)
+                            .color(if is_active { Color32::WHITE } else { theme.text_muted })
                     )
                     .fill(if is_active { theme.accent } else { theme.card_bg })
-                    .rounding(Rounding::same(4.0));
+                    .rounding(Rounding::same(5.0));
 
                     if ui.add(btn).clicked() {
-                        state.chat_font_size = size;
+                        state.voice_modulator = val.to_string();
+                    }
+                }
+            });
+        });
+}
+
+fn render_appearance_tab(ui: &mut egui::Ui, state: &mut AppState, theme: &Theme, ctx: &egui::Context) {
+    ui.label(egui::RichText::new("Темы и оформление").size(14.0).strong().color(theme.text_primary));
+    ui.label(egui::RichText::new("Настройте цветовую схему приложения, акцентный оттенок и оформление сообщений").size(10.5).color(theme.text_muted));
+    ui.add_space(8.0);
+
+    // Section 1: Themes (4 Cards with mini previews)
+    ui.label(egui::RichText::new("ТЕМА ОФОРМЛЕНИЯ").size(10.0).strong().color(theme.accent));
+    ui.add_space(4.0);
+
+    let themes_list = [
+        (ThemeMode::Dark, "Темная", Color32::from_rgb(15, 20, 26), Color32::from_rgb(25, 34, 45)),
+        (ThemeMode::Midnight, "Полночь", Color32::from_rgb(10, 10, 14), Color32::from_rgb(18, 18, 25)),
+        (ThemeMode::Matrix, "Matrix", Color32::from_rgb(8, 18, 12), Color32::from_rgb(14, 28, 18)),
+        (ThemeMode::Day, "Дневная", Color32::from_rgb(240, 242, 245), Color32::from_rgb(225, 230, 238)),
+    ];
+
+    ui.horizontal(|ui| {
+        let card_w = ((ui.available_width() - 24.0) / 4.0).max(85.0);
+        for (mode, title, bg_col, bubble_col) in themes_list {
+            let is_selected = state.theme_mode == mode;
+            let (rect, resp) = ui.allocate_exact_size(Vec2::new(card_w, 88.0), Sense::click());
+
+            let border_stroke = if is_selected {
+                Stroke::new(2.0_f32, theme.accent)
+            } else {
+                Stroke::new(1.0_f32, theme.border_color)
+            };
+            ui.painter().rect_filled(rect, Rounding::same(10.0), theme.bubble_other_bg);
+            ui.painter().rect_stroke(rect, Rounding::same(10.0), border_stroke);
+
+            // Mini preview box inside card
+            let preview_rect = egui::Rect::from_min_size(
+                egui::pos2(rect.min.x + 6.0, rect.min.y + 6.0),
+                Vec2::new(rect.width() - 12.0, 48.0),
+            );
+            ui.painter().rect_filled(preview_rect, Rounding::same(6.0), bg_col);
+
+            // Incoming bubble in mini preview
+            let in_bubble = egui::Rect::from_min_size(
+                egui::pos2(preview_rect.min.x + 4.0, preview_rect.min.y + 7.0),
+                Vec2::new(preview_rect.width() * 0.55, 12.0),
+            );
+            ui.painter().rect_filled(in_bubble, Rounding::same(4.0), bubble_col);
+
+            // Outgoing bubble in mini preview
+            let out_accent = if let Some(rgb) = state.custom_accent {
+                Color32::from_rgb(rgb[0], rgb[1], rgb[2])
+            } else {
+                match mode {
+                    ThemeMode::Matrix => Color32::from_rgb(0, 230, 118),
+                    ThemeMode::Midnight => Color32::from_rgb(139, 92, 246),
+                    _ => Color32::from_rgb(0, 122, 255),
+                }
+            };
+            let out_bubble = egui::Rect::from_min_size(
+                egui::pos2(preview_rect.max.x - preview_rect.width() * 0.62 - 4.0, preview_rect.min.y + 26.0),
+                Vec2::new(preview_rect.width() * 0.62, 14.0),
+            );
+            ui.painter().rect_filled(out_bubble, Rounding::same(4.0), out_accent);
+
+            // Radio indicator + Title
+            let circle_center = egui::pos2(rect.min.x + 14.0, rect.max.y - 15.0);
+            ui.painter().circle_stroke(circle_center, 6.0, Stroke::new(1.5_f32, if is_selected { theme.accent } else { theme.text_muted }));
+            if is_selected {
+                ui.painter().circle_filled(circle_center, 3.5, theme.accent);
+            }
+
+            let text_pos = egui::pos2(rect.min.x + 25.0, rect.max.y - 15.0);
+            ui.painter().text(
+                text_pos,
+                Align2::LEFT_CENTER,
+                title,
+                egui::FontId::proportional(11.0),
+                if is_selected { theme.text_primary } else { theme.text_muted },
+            );
+
+            if resp.clicked() {
+                state.theme_mode = mode;
+                let new_theme = Theme::from_mode_with_accent(mode, state.custom_accent);
+                new_theme.apply_to_ctx(ctx);
+            }
+        }
+    });
+
+    ui.add_space(14.0);
+
+    // Section 2: Цветовая палитра / Акцентный цвет (9 Swatches)
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("ЦВЕТОВАЯ ПАЛИТРА И АКЦЕНТ").size(10.0).strong().color(theme.accent));
+        if state.custom_accent.is_some() {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(egui::RichText::new("По умолчанию").size(10.0).color(theme.text_muted)).clicked() {
+                    state.custom_accent = None;
+                    let new_theme = Theme::from_mode_with_accent(state.theme_mode, None);
+                    new_theme.apply_to_ctx(ctx);
+                }
+            });
+        }
+    });
+    ui.add_space(6.0);
+
+    let swatches: [([u8; 3], &str); 9] = [
+        ([0, 122, 255], "Лазурный"),
+        ([0, 229, 255], "Неоновый циан"),
+        ([0, 200, 83], "Изумруд"),
+        ([124, 77, 255], "Фиолетовый"),
+        ([255, 64, 129], "Пурпурный"),
+        ([255, 171, 0], "Янтарь"),
+        ([255, 82, 82], "Рубин"),
+        ([0, 191, 165], "Бирюзовый"),
+        ([120, 144, 156], "Стелс"),
+    ];
+
+    ui.horizontal(|ui| {
+        for (rgb, name) in swatches {
+            let swatch_color = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+            let is_active = state.custom_accent == Some(rgb);
+
+            let (_rect, resp) = ui.allocate_exact_size(Vec2::new(32.0, 32.0), Sense::click());
+            let center = _rect.center();
+
+            if resp.hovered() {
+                ui.painter().circle_filled(center, 15.0, swatch_color);
+            } else {
+                ui.painter().circle_filled(center, 13.0, swatch_color);
+            }
+
+            if is_active {
+                ui.painter().circle_stroke(center, 16.5, Stroke::new(2.5_f32, theme.text_primary));
+                ui.painter().text(center, Align2::CENTER_CENTER, "✓", egui::FontId::proportional(12.0), Color32::WHITE);
+            }
+
+            let resp = resp.on_hover_text(name);
+            if resp.clicked() {
+                state.custom_accent = Some(rgb);
+                let new_theme = Theme::from_mode_with_accent(state.theme_mode, state.custom_accent);
+                new_theme.apply_to_ctx(ctx);
+            }
+            ui.add_space(2.0);
+        }
+    });
+
+    ui.add_space(10.0);
+
+    // Section 3: Предпросмотр имени и бейджа
+    egui::Frame::none()
+        .fill(theme.bubble_other_bg)
+        .rounding(Rounding::same(8.0))
+        .stroke(Stroke::new(1.0_f32, theme.border_color))
+        .inner_margin(Margin::same(10.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Предпросмотр профиля:").size(11.0).color(theme.text_muted));
+                ui.label(
+                    egui::RichText::new(format!("{} (NodeX P2P)", state.my_name))
+                        .size(12.0)
+                        .strong()
+                        .color(theme.accent),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let badge = egui::RichText::new("E2EE Защищено")
+                        .size(10.0)
+                        .strong()
+                        .color(Color32::WHITE);
+                    let badge_btn = egui::Button::new(badge)
+                        .fill(theme.accent)
+                        .rounding(Rounding::same(12.0));
+                    ui.add(badge_btn);
+                });
+            });
+        });
+
+    ui.add_space(14.0);
+
+    // Section 4: Настройки чатов (Chat typography, geometry & wallpaper)
+    ui.label(egui::RichText::new("НАСТРОЙКИ ЧАТОВ И ОТОБРАЖЕНИЯ").size(10.0).strong().color(theme.accent));
+    ui.add_space(6.0);
+
+    egui::Frame::none()
+        .fill(theme.bubble_other_bg)
+        .rounding(Rounding::same(10.0))
+        .stroke(Stroke::new(1.0_f32, theme.border_color))
+        .inner_margin(Margin::same(12.0))
+        .show(ui, |ui| {
+            // Font Size
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Размер текста сообщений:").size(11.5).strong().color(theme.text_primary));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(egui::RichText::new(format!("{:.1} px", state.chat_font_size)).size(11.5).strong().color(theme.accent));
+                });
+            });
+            ui.add(egui::Slider::new(&mut state.chat_font_size, 11.0..=18.0).step_by(0.5).show_value(false));
+
+            // Font preview snippet
+            egui::Frame::none()
+                .fill(theme.card_bg)
+                .rounding(Rounding::same(6.0))
+                .inner_margin(Margin::symmetric(10.0, 6.0))
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("Пример: Привет! Это P2P сеть NodeX с шифрованием ChaCha20-Poly1305.")
+                            .size(state.chat_font_size)
+                            .color(theme.text_primary),
+                    );
+                });
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            // Bubble Rounding
+            ui.label(egui::RichText::new("Скругление углов сообщений:").size(11.5).strong().color(theme.text_primary));
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                let roundings = [
+                    (4.0_f32, "4px (Строгие)"),
+                    (10.0_f32, "10px (Классика)"),
+                    (16.0_f32, "16px (NodeX Soft)"),
+                    (20.0_f32, "20px (Капсулы)"),
+                ];
+                for (val, lbl) in roundings {
+                    let is_active = (state.bubble_rounding - val).abs() < 0.5;
+                    let btn = egui::Button::new(
+                        egui::RichText::new(lbl)
+                            .size(10.5)
+                            .color(if is_active { Color32::WHITE } else { theme.text_muted })
+                    )
+                    .fill(if is_active { theme.accent } else { theme.card_bg })
+                    .rounding(Rounding::same(6.0));
+
+                    if ui.add(btn).clicked() {
+                        state.bubble_rounding = val;
                     }
                 }
             });
 
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            // Chat Wallpaper / Texture
+            ui.label(egui::RichText::new("Текстура фона чата:").size(11.5).strong().color(theme.text_primary));
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                let wallpapers = [
+                    ("solid", "Сплошной цвет"),
+                    ("mesh", "P2P Mesh (Сетка узлов)"),
+                    ("hexagons", "Cyber Hex (Кибер-соты)"),
+                ];
+                for (w_type, lbl) in wallpapers {
+                    let is_active = state.chat_wallpaper_type == w_type;
+                    let btn = egui::Button::new(
+                        egui::RichText::new(lbl)
+                            .size(10.5)
+                            .color(if is_active { Color32::WHITE } else { theme.text_muted })
+                    )
+                    .fill(if is_active { theme.accent } else { theme.card_bg })
+                    .rounding(Rounding::same(6.0));
+
+                    if ui.add(btn).clicked() {
+                        state.chat_wallpaper_type = w_type.to_string();
+                    }
+                }
+            });
+
+            ui.add_space(8.0);
+            ui.separator();
             ui.add_space(6.0);
-            ui.checkbox(&mut state.send_on_enter, "Отправка по Enter (Shift+Enter - перенос)");
-            ui.checkbox(&mut state.compact_bubbles, "Компактные пузыри сообщений");
-            ui.checkbox(&mut state.auto_download_media, "Автозагрузка медиа");
+
+            ui.checkbox(&mut state.auto_night_mode, "Автоматическое переключение ночной темы");
         });
 }
 
@@ -557,9 +1024,9 @@ fn render_network_tab(ui: &mut egui::Ui, state: &mut AppState, theme: &Theme) {
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Relay Node:").size(11.0).color(theme.text_primary));
-                let relay_text = if state.network_stats.relay_active { "[ Вкл ]" } else { "[ Выкл ]" };
+                let relay_text = if state.network_stats.relay_active { "Вкл" } else { "Выкл" };
                 let relay_color = if state.network_stats.relay_active { theme.accent } else { theme.text_muted };
-                if ui.button(egui::RichText::new(relay_text).monospace().strong().color(relay_color)).clicked() {
+                if ui.button(egui::RichText::new(relay_text).strong().color(relay_color)).clicked() {
                     state.network_stats.relay_active = !state.network_stats.relay_active;
                 }
             });
@@ -567,14 +1034,66 @@ fn render_network_tab(ui: &mut egui::Ui, state: &mut AppState, theme: &Theme) {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("UPnP Port Mapping:").size(11.0).color(theme.text_primary));
-                let upnp_text = if state.network_stats.upnp_active { "[ Вкл ]" } else { "[ Выкл ]" };
+                let upnp_text = if state.network_stats.upnp_active { "Вкл" } else { "Выкл" };
                 let upnp_color = if state.network_stats.upnp_active { theme.accent } else { theme.text_muted };
-                if ui.button(egui::RichText::new(upnp_text).monospace().strong().color(upnp_color)).clicked() {
+                if ui.button(egui::RichText::new(upnp_text).strong().color(upnp_color)).clicked() {
                     state.network_stats.upnp_active = !state.network_stats.upnp_active;
                 }
             });
 
             ui.add_space(6.0);
             ui.monospace(egui::RichText::new(format!("DHT Nodes: {} • NAT: {}", state.network_stats.known_nodes, state.network_stats.nat_type)).size(10.0).color(theme.text_muted));
+        });
+}
+
+fn render_advanced_tab(ui: &mut egui::Ui, state: &mut AppState, theme: &Theme) {
+    ui.label(egui::RichText::new("Продвинутые настройки и P2P").size(14.0).strong().color(theme.text_primary));
+    ui.add_space(6.0);
+
+    egui::Frame::none()
+        .fill(theme.bubble_other_bg)
+        .rounding(Rounding::same(8.0))
+        .stroke(Stroke::new(1.0_f32, theme.border_color))
+        .inner_margin(Margin::same(12.0))
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new("МАРШРУТИЗАЦИЯ И ШИФРОВАНИЕ").size(10.0).strong().color(theme.accent));
+            ui.add_space(4.0);
+            ui.checkbox(&mut state.p2p_relay_enabled, "Многоузловая P2P-ретрансляция пакетов (Relay Node)");
+            ui.checkbox(&mut state.onion_routing_enabled, "Сквозной Onion Routing (2-Hop защищенный туннель)");
+            ui.checkbox(&mut state.embed_node_identity, "Стегографическое встраивание ID в аватарах");
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            ui.label(egui::RichText::new("ОЧИСТКА ДАННЫХ И КЭША").size(10.0).strong().color(theme.accent));
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if ui.button(egui::RichText::new("🗑 Очистить кэш медиа").size(11.0)).clicked() {
+                    state.file_downloads.clear();
+                    state.toast_notification = Some(crate::state::ToastNotification {
+                        sender_id: "system".to_string(),
+                        sender_name: "Система".to_string(),
+                        text: "Кэш медиа и временные файлы успешно очищены!".to_string(),
+                        created_at: std::time::Instant::now(),
+                    });
+                    state.audio_player.play_sent_sound();
+                }
+
+                if ui.button(egui::RichText::new("⚠️ Очистить историю сообщений").size(11.0).color(Color32::from_rgb(239, 68, 68))).clicked() {
+                    state.modals.show_delete_session_confirm = Some("all_chat_history".to_string());
+                }
+            });
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            ui.label(egui::RichText::new("ДИАГНОСТИКА СЕТИ").size(10.0).strong().color(theme.accent));
+            ui.add_space(4.0);
+            ui.monospace(egui::RichText::new(format!("UDP Порт: {} • Узлов DHT: {}", state.port, state.network_stats.known_nodes)).size(10.5).color(theme.text_muted));
+            ui.monospace(egui::RichText::new(format!("NAT: {} • Relay: {}", state.network_stats.nat_type, if state.network_stats.relay_active { "Активен" } else { "Выключен" })).size(10.5).color(theme.text_muted));
+            ui.monospace(egui::RichText::new(format!("Пакетов отправлено: {} • Доставлено: {}", state.network_stats.messages_sent, state.network_stats.messages_delivered)).size(10.5).color(theme.text_muted));
+            ui.monospace(egui::RichText::new(format!("Активных сеансов устройств: {}", state.device_sessions.len())).size(10.5).color(theme.online_indicator));
         });
 }

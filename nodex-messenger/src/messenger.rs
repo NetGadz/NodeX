@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use rand::RngCore;
+use chacha20poly1305::aead::KeyInit;
 use tokio::sync::RwLock;
 
 use crate::attachments::{AttachmentManager, FileManifest};
@@ -105,6 +107,7 @@ pub enum MessengerEvent {
         sender_id: String,
         chunk: crate::calls::CallAudioChunk,
     },
+    CallAudioFrameReceived { sender_id: String, call_id: String, seq: u64, sample_rate: u32, pcm: Vec<i16> },
 }
 
 pub struct KadMessenger {
@@ -114,6 +117,7 @@ pub struct KadMessenger {
     pub db_path: String,
     pub outbox: Arc<MessageQueue>,
     pub replay_cache: Arc<ReplayProtectionCache>,
+    pub audio_sequences: Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>>,
 }
 
 impl KadMessenger {
@@ -151,6 +155,16 @@ impl KadMessenger {
         db.save_to_file(&db_path).ok();
 
         let outbox = Arc::new(MessageQueue::new());
+        let current_user_id_hex = identity.user_id_hex();
+        let pending_messages: Vec<_> = db.messages.iter()
+            .filter(|message| !message.incoming && !message.delivered
+                && message.recipient_id_hex != "self_saved_messages"
+                && message.recipient_id_hex != current_user_id_hex)
+            .cloned()
+            .collect();
+        for message in pending_messages {
+            outbox.push(message.clone(), message.recipient_id_hex.clone()).await;
+        }
         let replay_cache = Arc::new(ReplayProtectionCache::new());
 
         let messenger = Arc::new(Self {
@@ -160,17 +174,57 @@ impl KadMessenger {
             db_path,
             outbox,
             replay_cache,
+            audio_sequences: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        });
+
+        // TCP Fast Bridge for direct peer / emulator delivery
+        let msgr_tcp = Arc::clone(&messenger);
+        let tcp_port = messenger.dht_node.network.local_addr.port();
+        tokio::spawn(async move {
+            if let Ok(listener) = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", tcp_port)).await {
+                println!("[TCP_BRIDGE] Listening on 0.0.0.0:{}", tcp_port);
+                while let Ok((mut stream, _peer_addr)) = listener.accept().await {
+                    let msgr = Arc::clone(&msgr_tcp);
+                    tokio::spawn(async move {
+                        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                        let mut buf = vec![0u8; 65536];
+                        if let Ok(n) = stream.read(&mut buf).await {
+                            if n >= 53 && buf[0] == 3 {
+                                let key_bytes = &buf[29..49];
+                                let mut k_arr = [0u8; 20];
+                                k_arr.copy_from_slice(key_bytes);
+                                let key_id = nodex_kademlia::node::NodeId::from_bytes(k_arr);
+
+                                if let Ok(val_len_bytes) = buf[49..53].try_into() {
+                                    let val_len = u32::from_be_bytes(val_len_bytes) as usize;
+                                    if n >= 53 + val_len {
+                                        let val = buf[53..53 + val_len].to_vec();
+                                        {
+                                            let mut st = msgr.dht_node.storage.write().await;
+                                            st.put(key_id, val, Duration::from_secs(86400));
+                                        }
+                                        msgr.dht_node.on_store_notify.notify_waiters();
+                                        let _ = stream.write_all(&[4, 0]).await;
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }
         });
 
         // Publish initial presence
         messenger.publish_presence().await.ok();
 
-        // Background Presence Heartbeat (re-publishes every 4s)
+        // Presence changes slowly; a minute cadence avoids repeating STUN and
+        // DHT publication work on every connected client every few seconds.
         let messenger_heartbeat = Arc::clone(&messenger);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(4));
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
             loop {
                 interval.tick().await;
+                tokio::time::sleep(Duration::from_millis(rand::random::<u64>() % 5_000)).await;
                 let _ = messenger_heartbeat.publish_presence().await;
             }
         });
@@ -186,14 +240,11 @@ impl KadMessenger {
                     let res = messenger_outbox
                         .try_deliver_message(&queued.recipient_id, &queued.message)
                         .await;
-                    if res.is_ok() {
-                        messenger_outbox.outbox.mark_delivered(&queued.message.id).await;
-                        let mut db = messenger_outbox.db.write().await;
-                        db.mark_message_delivered(&queued.message.id);
-                        db.save_to_file(&messenger_outbox.db_path).ok();
-                    } else {
-                        messenger_outbox.outbox.schedule_retry(queued, now).await;
-                    }
+                    // A successful STORE only confirms that a peer or mailbox
+                    // accepted the envelope. Only a signed recipient receipt
+                    // may mark the chat message delivered and remove it.
+                    let _transport_accepted = res.is_ok();
+                    messenger_outbox.outbox.schedule_retry(queued, now).await;
                 }
             }
         });
@@ -258,9 +309,13 @@ impl KadMessenger {
             db.display_name.clone()
         };
         let mut endpoints = vec![self.dht_node.network.local_addr];
-        if let Some(public_addr) = nodex_kademlia::stun::StunClient::query_reflexive_endpoint(&self.dht_node.network.socket).await {
+        if let Some(public_addr) = nodex_kademlia::stun::StunClient::discover_public_addr().await {
+            let mapped_addr = std::net::SocketAddr::new(public_addr.ip(), self.dht_node.network.local_addr.port());
+            if !endpoints.contains(&mapped_addr) {
+                endpoints.insert(0, mapped_addr);
+            }
             if !endpoints.contains(&public_addr) {
-                endpoints.insert(0, public_addr);
+                endpoints.push(public_addr);
             }
         }
         let ttl_secs = ttl_days.map(|d| d * 86400);
@@ -293,11 +348,61 @@ impl KadMessenger {
 
     pub fn start_inbox_polling_task(self: &Arc<Self>, event_tx: Option<std::sync::mpsc::Sender<MessengerEvent>>) {
         let messenger = Arc::clone(self);
+        let audio_messenger = Arc::clone(self);
+        let audio_events = event_tx.clone();
+        let mut audio_rx = self.dht_node.on_datagram.subscribe();
+        tokio::spawn(async move {
+            while let Ok((packet, _addr)) = audio_rx.recv().await {
+                if packet.len() < 120 || &packet[..4] != b"NXCA" { continue; }
+                let sender = hex_string(&packet[4..24]);
+                let recipient = hex_string(&packet[24..44]);
+                let id_len = packet[44] as usize;
+                let min = 45 + id_len + 8 + 4 + 12 + 32 + 2 + 16;
+                if id_len == 0 || id_len > 128 || packet.len() < min { continue; }
+                let mut cursor = 45;
+                let call_id = String::from_utf8_lossy(&packet[cursor..cursor + id_len]).to_string(); cursor += id_len;
+                let seq = u64::from_be_bytes(packet[cursor..cursor + 8].try_into().unwrap()); cursor += 8;
+                let rate = u32::from_be_bytes(packet[cursor..cursor + 4].try_into().unwrap()); cursor += 4;
+                if !(8_000..=48_000).contains(&rate) || recipient != audio_messenger.identity.read().await.user_id_hex() { continue; }
+                let nonce = &packet[cursor..cursor + 12]; cursor += 12;
+                let eph_bytes: [u8; 32] = match packet[cursor..cursor + 32].try_into() { Ok(v) => v, Err(_) => continue }; cursor += 32;
+                let ct_len = u16::from_be_bytes(packet[cursor..cursor + 2].try_into().unwrap()) as usize; cursor += 2;
+                if ct_len < 16 || ct_len > 1100 || packet.len() != cursor + ct_len { continue; }
+                let Some(identity) = audio_messenger.identity.try_read().ok().map(|g| g.clone()) else { continue; };
+                let Some(contact) = audio_messenger.db.read().await.contacts.get(&sender).cloned() else { continue; };
+                let Some(sender_x_bytes) = hex_decode(&contact.x25519_pub_hex) else { continue; };
+                let Ok(sender_x_array): Result<[u8; 32], _> = sender_x_bytes.try_into() else { continue; };
+                let eph = x25519_dalek::PublicKey::from(eph_bytes);
+                let sender_x = x25519_dalek::PublicKey::from(sender_x_array);
+                let dh_eph = identity.x25519_secret.diffie_hellman(&eph);
+                let dh_static = identity.x25519_secret.diffie_hellman(&sender_x);
+                let mut ikm = Vec::with_capacity(64); ikm.extend_from_slice(dh_eph.as_bytes()); ikm.extend_from_slice(dh_static.as_bytes());
+                let hk = hkdf::Hkdf::<sha2::Sha256>::new(Some(nonce), &ikm);
+                let mut key = [0u8; 32]; if hk.expand(b"NodeX-call-audio-v1", &mut key).is_err() { continue; }
+                let Ok(cipher) = chacha20poly1305::ChaCha20Poly1305::new_from_slice(&key) else { continue; };
+                let mut aad = b"NodeX-call-audio-v1".to_vec();
+                aad.extend_from_slice(&packet[4..44]);
+                aad.push(id_len as u8); aad.extend_from_slice(call_id.as_bytes());
+                aad.extend_from_slice(&seq.to_be_bytes()); aad.extend_from_slice(&rate.to_be_bytes());
+                let Ok(plain) = chacha20poly1305::aead::Aead::decrypt(&cipher, chacha20poly1305::Nonce::from_slice(nonce), chacha20poly1305::aead::Payload { msg: &packet[cursor..], aad: &aad }) else { continue; };
+                let stream_key = format!("{}:{}", sender, call_id);
+                let Ok(mut sequences) = audio_messenger.audio_sequences.lock() else { continue; };
+                if sequences.get(&stream_key).is_some_and(|last| seq <= *last) { continue; }
+                if sequences.len() >= 4096 && !sequences.contains_key(&stream_key) { continue; }
+                sequences.insert(stream_key, seq);
+                drop(sequences);
+                if plain.len() % 2 != 0 { continue; }
+                let pcm = plain.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
+                if let Some(ref tx) = audio_events {
+                    let _ = tx.send(MessengerEvent::CallAudioFrameReceived { sender_id: sender, call_id, seq, sample_rate: rate, pcm });
+                }
+            }
+        });
         tokio::spawn(async move {
             let mut tick = 0u64;
             loop {
                 tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(500)) => {},
+                    _ = tokio::time::sleep(Duration::from_millis(5_000 + rand::random::<u64>() % 1_000)) => {},
                     _ = messenger.dht_node.on_store_notify.notified() => {},
                 }
                 tick = tick.wrapping_add(1);
@@ -334,6 +439,7 @@ impl KadMessenger {
                     }
                 }
 
+                let mut all_batches: Vec<(Option<String>, Vec<EncryptedEnvelope>)> = Vec::new();
                 for mailbox_key in keys_to_poll {
                     if let Ok(Some((bytes, _from))) = messenger.dht_node.get_silent(&mailbox_key).await {
                         let envelopes: Vec<EncryptedEnvelope> = if let Ok(list) = serde_json::from_slice::<Vec<EncryptedEnvelope>>(&bytes) {
@@ -343,14 +449,41 @@ impl KadMessenger {
                         } else {
                             Vec::new()
                         };
+                        all_batches.push((Some(mailbox_key), envelopes));
+                    }
+                }
+                {
+                    let mut st = messenger.dht_node.storage.write().await;
+                    if let Some(record) = st.remove(&my_node_id) {
+                        let bytes = &record.value;
+                        let envelopes: Vec<EncryptedEnvelope> = if let Ok(list) = serde_json::from_slice::<Vec<EncryptedEnvelope>>(bytes) {
+                            list
+                        } else if let Ok(single) = serde_json::from_slice::<EncryptedEnvelope>(bytes) {
+                            vec![single]
+                        } else {
+                            Vec::new()
+                        };
+                        if !envelopes.is_empty() {
+                            all_batches.push((None, envelopes));
+                        }
+                    }
+                }
+
+                for (mailbox_key_opt, envelopes) in all_batches {
 
                         let mut received_any = false;
                         let mut unconsumed_envelopes = Vec::new();
                         for envelope in envelopes {
-                        if envelope.recipient_id == my_node_id {
-                            // Do not echo our own messages
-                            if envelope.sender_id == my_node_id {
-                                continue;
+                            if envelope.recipient_id == my_node_id {
+                                // Skip self-echo only if already present in DB
+                                if envelope.sender_id == my_node_id {
+                                let id_already_present = {
+                                    let db = messenger.db.read().await;
+                                    db.messages.iter().any(|m| m.timestamp == envelope.timestamp)
+                                };
+                                if id_already_present {
+                                    continue;
+                                }
                             }
 
                             let sender_hex = envelope.sender_id.to_hex();
@@ -380,7 +513,14 @@ impl KadMessenger {
 
                             // 2. Replay protection check: only record verified, genuine envelopes in replay cache
                             let now = current_timestamp();
-                            if !messenger.replay_cache.check_and_insert(&envelope.signature, envelope.timestamp, now) {
+                            let replay_key = if !envelope.signature.is_empty() {
+                                envelope.signature.clone()
+                            } else if !envelope.nonce.is_empty() {
+                                envelope.nonce.clone()
+                            } else {
+                                envelope.ciphertext.clone()
+                            };
+                            if !messenger.replay_cache.check_and_insert(&replay_key, envelope.timestamp, now) {
                                 println!("[MESSENGER] Rejected duplicate/expired envelope from {}", sender_hex);
                                 continue;
                             }
@@ -445,7 +585,7 @@ impl KadMessenger {
                                     // Register pending tombstones strictly scoped to sender_hex
                                     db.register_pending_tombstones(&sender_hex, &del_ids);
                                     db.save_to_file(&messenger.db_path).ok();
-                                    
+
                                     if !actually_deleted.is_empty() {
                                         received_any = true;
                                         if let Some(ref tx) = event_tx {
@@ -462,7 +602,7 @@ impl KadMessenger {
 
                             // 4. Handle Call Signal
                             if let Some(call_sig) = payload.call_signal {
-                                if call_sig.caller_id_hex != sender_hex {
+                                if call_sig.caller_id_hex != sender_hex || call_sig.callee_id_hex != my_user_id {
                                     eprintln!("[SECURITY] Rejected spoofed call signal from {} claiming to be {}", sender_hex, call_sig.caller_id_hex);
                                     continue;
                                 }
@@ -470,7 +610,7 @@ impl KadMessenger {
                                     .duration_since(std::time::UNIX_EPOCH)
                                     .unwrap_or_default()
                                     .as_secs();
-                                if now.saturating_sub(call_sig.timestamp) > 45 {
+                                if now.abs_diff(call_sig.timestamp) > 45 {
                                     println!("[MESSENGER] Discarded stale call signal {:?} (age: {}s)", call_sig.signal_type, now.saturating_sub(call_sig.timestamp));
                                     continue;
                                 }
@@ -481,8 +621,15 @@ impl KadMessenger {
                                 continue;
                             }
 
-                            // 4.1 Handle Real-time Call Audio Chunk
+                            // 4.1 Handle legacy Real-time Call Audio Chunk
                             if let Some(audio_chunk) = payload.call_audio_chunk {
+                                if envelope.recipient_id != my_node_id
+                                    || audio_chunk.call_id.is_empty()
+                                    || audio_chunk.pcm_base64.len() > 16_384
+                                    || !(8_000..=48_000).contains(&audio_chunk.sample_rate)
+                                {
+                                    continue;
+                                }
                                 if let Some(ref tx) = event_tx {
                                     let _ = tx.send(MessengerEvent::CallAudioReceived {
                                         sender_id: sender_hex.clone(),
@@ -606,28 +753,29 @@ impl KadMessenger {
                                     db.save_to_file(&messenger.db_path).ok();
                                 }
 
-                                let is_new = {
+                                let (is_new, should_ack) = {
                                     let mut db = messenger.db.write().await;
                                     if db.is_tombstoned(&sender_hex, &chat_msg.id) {
-                                        false
+                                        (false, false)
                                     } else {
                                         let before = db.messages.len();
                                         db.add_message(chat_msg.clone());
                                         db.save_to_file(&messenger.db_path).ok();
-                                        db.messages.len() > before
+                                        (db.messages.len() > before, true)
                                     }
                                 };
 
-                                if is_new {
-                                    received_any = true;
-
-                                    // Automatically send DeliveryReceipt back to sender
+                                if should_ack {
                                     let messenger_ack = Arc::clone(&messenger);
                                     let ack_sender = sender_hex.clone();
                                     let ack_msg_id = msg_id.clone();
                                     tokio::spawn(async move {
                                         let _ = messenger_ack.send_delivery_receipt(&ack_sender, &ack_msg_id).await;
                                     });
+                                }
+
+                                if is_new {
+                                    received_any = true;
 
                                     if let Some(ref tx) = event_tx {
                                         let db = messenger.db.read().await;
@@ -643,16 +791,17 @@ impl KadMessenger {
                     }
 
                     // Drain consumed envelopes from mailbox storage
-                    if unconsumed_envelopes.is_empty() {
-                        let mailbox_node_id = NodeId::from_key(mailbox_key.as_bytes());
-                        messenger.dht_node.storage.write().await.remove(&mailbox_node_id);
-                    } else {
-                        let payload = serde_json::to_vec(&unconsumed_envelopes).unwrap_or_default();
-                        let _ = messenger.dht_node.put(&mailbox_key, payload).await;
+                    if let Some(ref mailbox_key) = mailbox_key_opt {
+                        if unconsumed_envelopes.is_empty() {
+                            let mailbox_node_id = NodeId::from_key(mailbox_key.as_bytes());
+                            messenger.dht_node.storage.write().await.remove(&mailbox_node_id);
+                        } else {
+                            let payload = serde_json::to_vec(&unconsumed_envelopes).unwrap_or_default();
+                            let _ = messenger.dht_node.put(mailbox_key, payload).await;
+                        }
                     }
 
-                        let _ = received_any;
-                    }
+                    let _ = received_any;
                 }
             }
         });
@@ -669,11 +818,15 @@ impl KadMessenger {
 
         let mut endpoints = vec![self.dht_node.network.local_addr];
         let mut primary_addr = self.dht_node.network.local_addr;
-        if let Some(public_addr) = nodex_kademlia::stun::StunClient::query_reflexive_endpoint(&self.dht_node.network.socket).await {
-            if !endpoints.contains(&public_addr) {
-                endpoints.insert(0, public_addr);
+        if let Some(public_addr) = nodex_kademlia::stun::StunClient::discover_public_addr().await {
+            let mapped_addr = std::net::SocketAddr::new(public_addr.ip(), self.dht_node.network.local_addr.port());
+            if !endpoints.contains(&mapped_addr) {
+                endpoints.insert(0, mapped_addr);
             }
-            primary_addr = public_addr;
+            if !endpoints.contains(&public_addr) {
+                endpoints.push(public_addr);
+            }
+            primary_addr = mapped_addr;
         }
 
         let card = UserPresenceCard::create_with_endpoints(
@@ -873,10 +1026,10 @@ impl KadMessenger {
 
         let chat_msg = SavedChatMessage {
             id: msg_id.clone(),
-            sender_id_hex: my_user_id_hex,
+            sender_id_hex: my_user_id_hex.clone(),
             recipient_id_hex: recipient_id_hex.to_string(),
             text: text.to_string(),
-            image_base64,
+            image_base64: image_base64.clone(),
             voice_note: None,
             reply_to_id: None,
             reply_snippet: None,
@@ -891,12 +1044,52 @@ impl KadMessenger {
             delivered: false,
         };
 
+        let is_self = recipient_id_hex == "self_saved_messages" || recipient_id_hex == my_user_id_hex;
+        if is_self {
+            let final_msg = SavedChatMessage {
+                id: msg_id.clone(),
+                sender_id_hex: my_user_id_hex.clone(),
+                recipient_id_hex: recipient_id_hex.to_string(),
+                text: text.to_string(),
+                image_base64,
+                voice_note: None,
+                reply_to_id: None,
+                reply_snippet: None,
+                is_edited: false,
+                edit_timestamp: None,
+                reactions: std::collections::HashMap::new(),
+                group_id: None,
+                is_pinned: false,
+                expires_at: None,
+                timestamp: current_timestamp(),
+                incoming: false,
+                delivered: true,
+            };
+
+            let mut db = self.db.write().await;
+            db.add_message(final_msg.clone());
+            if recipient_id_hex == my_user_id_hex && !db.contacts.contains_key(&my_user_id_hex) {
+                let display_name = db.display_name.clone();
+                db.add_contact(SavedContact {
+                    user_id_hex: my_user_id_hex.clone(),
+                    name: if display_name.is_empty() { "Мой узел (Вы)".to_string() } else { format!("{} (Вы)", display_name) },
+                    bio: "Личные сообщения".to_string(),
+                    ed25519_pub_hex: my_user_id_hex.clone(),
+                    x25519_pub_hex: my_user_id_hex.clone(),
+                    last_seen_addr: "127.0.0.1:0".to_string(),
+                });
+            }
+            db.save_to_file(&self.db_path).ok();
+            return Ok(final_msg);
+        }
+
         // 1. Try deliver immediately through the 5-tier cascade
         match self.try_deliver_message(recipient_id_hex, &chat_msg).await {
             Ok(()) => {
                 let mut final_msg = chat_msg;
                 // Delivered is true immediately only for self_saved_messages. Peer messages await cryptographic DeliveryReceipt.
                 final_msg.delivered = recipient_id_hex == "self_saved_messages";
+                self.outbox.push_after(final_msg.clone(), recipient_id_hex.to_string(), 8).await;
                 let mut db = self.db.write().await;
                 db.add_message(final_msg.clone());
                 db.save_to_file(&self.db_path).ok();
@@ -1000,17 +1193,21 @@ impl KadMessenger {
             db.contacts.get(recipient_id_hex).map(|c| {
                 let direct_addr = c.last_seen_addr.parse::<SocketAddr>().ok();
                 let x_bytes = hex_decode(&c.x25519_pub_hex);
-                (x_bytes, direct_addr)
+                let is_invalid = c.x25519_pub_hex.is_empty()
+                    || c.x25519_pub_hex == c.ed25519_pub_hex
+                    || c.last_seen_addr == "127.0.0.1:8444"
+                    || c.last_seen_addr == "unknown";
+                (x_bytes, direct_addr, is_invalid)
             })
         };
 
         let (recipient_x25519_bytes, target_socket_addr, candidate_addrs) = match cached {
-            Some((Some(x_bytes), direct_addr)) if x_bytes.len() == 32 => {
+            Some((Some(x_bytes), direct_addr, false)) if x_bytes.len() == 32 => {
                 (x_bytes, direct_addr, direct_addr.map(|a| vec![a]).unwrap_or_default())
             }
             _ => match self.discover_peer(recipient_id_hex).await {
                 Ok(card) => (card.x25519_pub, Some(card.socket_addr), card.endpoints),
-                Err(_) => (Vec::new(), None, Vec::new()),
+                Err(_) => return Err(MessengerError::RecipientVerifiedKeyMissing(recipient_id_hex.to_string())),
             },
         };
 
@@ -1029,27 +1226,57 @@ impl KadMessenger {
 
         let payload_bytes = serde_json::to_vec(payload_struct).map_err(|e| MessengerError::Other(e.to_string()))?;
 
-        let envelope = {
-            let id = self.identity.read().await;
-            encrypt_envelope(&id, recipient_id, &recipient_x25519, &payload_bytes)
-                .map_err(MessengerError::Other)?
-        };
+        // Tier 1: Direct UDP Instant Delivery
+        let mut addrs_to_deliver = candidate_addrs.clone();
+        if let Some(addr) = target_socket_addr {
+            if !addrs_to_deliver.contains(&addr) {
+                addrs_to_deliver.insert(0, addr);
+            }
+        }
+
+        let id = self.identity.read().await;
+        let envelope = encrypt_envelope(&id, recipient_id, &recipient_x25519, &payload_bytes)
+            .map_err(MessengerError::Other)?;
 
         let mailbox_key = current_mailbox_key(recipient_id_hex);
         let mailbox_key_id = NodeId::from_key(mailbox_key.as_bytes());
         let single_payload = serde_json::to_vec(&vec![envelope.clone()]).unwrap_or_default();
 
-        // Tier 1: Direct UDP Instant Delivery
-        if let Some(addr) = target_socket_addr {
+        for addr in &addrs_to_deliver {
             if let Ok(reply) = self.dht_node.network.call(
-                addr,
+                *addr,
                 RpcPayload::Store { key: mailbox_key_id, value: single_payload.clone() },
-                RPC_TIMEOUT,
+                std::time::Duration::from_millis(300),
                 1,
             ).await {
                 if let RpcPayload::StoreAck { ok: true } = reply.payload {
                     println!("[CASCADE] Tier 1: Direct UDP delivery succeeded to {}", addr);
                     return Ok(());
+                }
+            }
+
+            // TCP Fast Bridge fallback for emulator or local direct peer
+            if addr.port() == 8444 || addr.ip().is_loopback() {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                if let Ok(Ok(mut stream)) = tokio::time::timeout(
+                    std::time::Duration::from_millis(600),
+                    tokio::net::TcpStream::connect(*addr),
+                ).await {
+                    let mut store_pkt = Vec::new();
+                    store_pkt.push(3u8); // MSG_STORE
+                    store_pkt.extend_from_slice(&rand::random::<u64>().to_be_bytes());
+                    store_pkt.extend_from_slice(self.dht_node.node_id.as_bytes());
+                    store_pkt.extend_from_slice(mailbox_key_id.as_bytes());
+                    store_pkt.extend_from_slice(&(single_payload.len() as u32).to_be_bytes());
+                    store_pkt.extend_from_slice(&single_payload);
+
+                    if stream.write_all(&store_pkt).await.is_ok() {
+                        let mut ack_buf = [0u8; 2];
+                        if stream.read_exact(&mut ack_buf).await.is_ok() {
+                            println!("[CASCADE] Tier 1: Direct TCP delivery succeeded to {}", addr);
+                            return Ok(());
+                        }
+                    }
                 }
             }
         }
@@ -1305,7 +1532,7 @@ impl KadMessenger {
 
         let chat_msg = SavedChatMessage {
             id: msg_id.clone(),
-            sender_id_hex: my_user_id_hex,
+            sender_id_hex: my_user_id_hex.clone(),
             recipient_id_hex: recipient_id_hex.to_string(),
             text: text_preview,
             image_base64: None,
@@ -1323,17 +1550,29 @@ impl KadMessenger {
             delivered: false,
         };
 
-        let delivered = self.try_deliver_message(recipient_id_hex, &chat_msg).await.is_ok();
+        let is_self = recipient_id_hex == "self_saved_messages" || recipient_id_hex == my_user_id_hex;
+        let delivered = if is_self { true } else { self.try_deliver_message(recipient_id_hex, &chat_msg).await.is_ok() };
         let mut final_msg = chat_msg;
         final_msg.delivered = delivered;
 
         {
             let mut db = self.db.write().await;
             db.add_message(final_msg.clone());
+            if recipient_id_hex == my_user_id_hex && !db.contacts.contains_key(&my_user_id_hex) {
+                let display_name = db.display_name.clone();
+                db.add_contact(SavedContact {
+                    user_id_hex: my_user_id_hex.clone(),
+                    name: if display_name.is_empty() { "Мой узел (Вы)".to_string() } else { format!("{} (Вы)", display_name) },
+                    bio: "Личные сообщения".to_string(),
+                    ed25519_pub_hex: my_user_id_hex.clone(),
+                    x25519_pub_hex: my_user_id_hex.clone(),
+                    last_seen_addr: "127.0.0.1:0".to_string(),
+                });
+            }
             db.save_to_file(&self.db_path).ok();
         }
 
-        if !delivered {
+        if !delivered && !is_self {
             self.outbox.push(final_msg.clone(), recipient_id_hex.to_string()).await;
         }
 
@@ -1506,24 +1745,13 @@ impl KadMessenger {
         sample_rate: u32,
         seq: u64,
     ) -> Result<(), MessengerError> {
-        use base64::Engine;
         let mut pcm_bytes = Vec::with_capacity(pcm_samples.len() * 2);
         for &s in pcm_samples {
             pcm_bytes.extend_from_slice(&s.to_le_bytes());
         }
-        let pcm_base64 = base64::engine::general_purpose::STANDARD.encode(&pcm_bytes);
-        let chunk = crate::calls::CallAudioChunk {
-            call_id: call_id.to_string(),
-            pcm_base64,
-            sample_rate,
-            seq,
-        };
-        let payload = ChatMessagePayload {
-            id: format!("audio_{}_{}", call_id, seq),
-            call_audio_chunk: Some(chunk),
-            ..Default::default()
-        };
-
+        if pcm_bytes.len() > 900 || call_id.is_empty() || !(8_000..=48_000).contains(&sample_rate) {
+            return Err(MessengerError::Other("Invalid or oversized real-time audio frame".into()));
+        }
         let recipient_id = NodeId::from_hex(recipient_id_hex)
             .map_err(|e| MessengerError::Other(format!("Invalid recipient hex: {}", e)))?;
 
@@ -1545,41 +1773,58 @@ impl KadMessenger {
         });
 
         let Some(x_bytes) = recipient_x25519_bytes else {
-            return Ok(());
+            return Err(MessengerError::RecipientVerifiedKeyMissing(recipient_id_hex.to_string()));
         };
         if x_bytes.len() != 32 {
-            return Ok(());
+            return Err(MessengerError::RecipientVerifiedKeyMissing(recipient_id_hex.to_string()));
         }
 
         let mut x25519_arr = [0u8; 32];
         x25519_arr.copy_from_slice(&x_bytes);
         let recipient_x25519 = x25519_dalek::PublicKey::from(x25519_arr);
 
-        let payload_bytes = serde_json::to_vec(&payload).map_err(|e| MessengerError::Other(e.to_string()))?;
+        let mut nonce = [0u8; 12];
+        rand::thread_rng().fill_bytes(&mut nonce);
+        let mut eph_seed = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut eph_seed);
+        let eph_secret = x25519_dalek::StaticSecret::from(eph_seed);
+        let eph_public = x25519_dalek::PublicKey::from(&eph_secret);
+        let dh_eph = eph_secret.diffie_hellman(&recipient_x25519);
+        let sender = self.identity.read().await.clone();
+        let dh_static = sender.x25519_secret.diffie_hellman(&recipient_x25519);
+        let mut ikm = Vec::with_capacity(64); ikm.extend_from_slice(dh_eph.as_bytes()); ikm.extend_from_slice(dh_static.as_bytes());
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(Some(&nonce), &ikm);
+        let mut frame_key = [0u8; 32];
+        hk.expand(b"NodeX-call-audio-v1", &mut frame_key).map_err(|e| MessengerError::CryptoError(format!("audio HKDF: {:?}", e)))?;
+        let cipher = chacha20poly1305::ChaCha20Poly1305::new_from_slice(&frame_key).map_err(|e| MessengerError::CryptoError(e.to_string()))?;
+        let call_bytes = call_id.as_bytes();
+        if call_bytes.len() > 128 { return Err(MessengerError::Other("call ID too long".into())); }
+        let mut aad = b"NodeX-call-audio-v1".to_vec();
+        aad.extend_from_slice(sender.user_id.as_bytes());
+        aad.extend_from_slice(recipient_id.as_bytes());
+        aad.push(call_bytes.len() as u8);
+        aad.extend_from_slice(call_bytes);
+        aad.extend_from_slice(&seq.to_be_bytes());
+        aad.extend_from_slice(&sample_rate.to_be_bytes());
+        let ciphertext = chacha20poly1305::aead::Aead::encrypt(&cipher, chacha20poly1305::Nonce::from_slice(&nonce), chacha20poly1305::aead::Payload { msg: pcm_bytes.as_slice(), aad: &aad })
+            .map_err(|e| MessengerError::CryptoError(e.to_string()))?;
 
-        let envelope = {
-            let id = self.identity.read().await;
-            encrypt_envelope(&id, recipient_id, &recipient_x25519, &payload_bytes)
-                .map_err(MessengerError::Other)?
+        let Some(target_socket_addr) = target_socket_addr else {
+            return Err(MessengerError::PeerNotFound(recipient_id_hex.to_string()));
         };
-
-        let mailbox_key = current_mailbox_key(recipient_id_hex);
-        let mailbox_key_id = NodeId::from_key(mailbox_key.as_bytes());
-        let single_payload = serde_json::to_vec(&vec![envelope]).unwrap_or_default();
-
-        // Direct UDP Fast Stream: send lightweight Store RPC directly to peer's address without queuing heavy DHT lookups
-        if let Some(addr) = target_socket_addr {
-            let req_id = rand::random::<u64>();
-            let rpc_msg = nodex_kademlia::rpc::RpcMessage::new(
-                req_id,
-                self.dht_node.node_id,
-                nodex_kademlia::rpc::RpcPayload::Store {
-                    key: mailbox_key_id,
-                    value: single_payload,
-                },
-            );
-            let _ = self.dht_node.network.send_message(addr, &rpc_msg).await;
-        }
+        let mut frame = b"NXCA".to_vec();
+        frame.extend_from_slice(sender.user_id.as_bytes());
+        frame.extend_from_slice(recipient_id.as_bytes());
+        frame.push(call_bytes.len() as u8);
+        frame.extend_from_slice(call_bytes);
+        frame.extend_from_slice(&seq.to_be_bytes());
+        frame.extend_from_slice(&sample_rate.to_be_bytes());
+        frame.extend_from_slice(&nonce);
+        frame.extend_from_slice(eph_public.as_bytes());
+        frame.extend_from_slice(&(ciphertext.len() as u16).to_be_bytes());
+        frame.extend_from_slice(&ciphertext);
+        self.dht_node.network.socket.send_to(&frame, target_socket_addr).await
+            .map_err(|e| MessengerError::NetworkError(e.to_string()))?;
 
         Ok(())
     }
@@ -1636,8 +1881,8 @@ async fn deposit_envelope_to_mailbox(dht_node: &KademliaNode, recipient_id_hex: 
         envelopes.push(envelope);
     }
 
-    if envelopes.len() > 100 {
-        envelopes = envelopes.split_off(envelopes.len() - 100);
+    if envelopes.len() > 30 {
+        envelopes = envelopes.split_off(envelopes.len() - 30);
     }
 
     let payload = serde_json::to_vec(&envelopes).map_err(|e| e.to_string())?;
@@ -1698,4 +1943,3 @@ mod tests {
         assert_ne!(crc, 0);
     }
 }
-

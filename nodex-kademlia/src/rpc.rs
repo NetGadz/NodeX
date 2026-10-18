@@ -501,11 +501,28 @@ impl NetworkManager {
         F: Fn(RpcMessage, SocketAddr) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = Option<RpcMessage>> + Send + 'static,
     {
+        self.start_receive_loop_with_datagram(routing_table, request_handler, |_, _| {});
+    }
+
+    pub fn start_receive_loop_with_datagram<F, Fut, D>(
+        self: &Arc<Self>,
+        routing_table: Arc<RwLock<RoutingTable>>,
+        request_handler: F,
+        datagram_handler: D,
+    ) where
+        F: Fn(RpcMessage, SocketAddr) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Option<RpcMessage>> + Send + 'static,
+        D: Fn(&[u8], SocketAddr) + Send + Sync + 'static,
+    {
         let nm = Arc::clone(self);
         let socket = Arc::clone(&self.socket);
         let pending = Arc::clone(&self.pending);
         let handler = Arc::new(request_handler);
         let metrics = Arc::clone(&self.metrics);
+        let datagram_handler = Arc::new(datagram_handler);
+        // UDP is untrusted input. Bound concurrent request handlers so a packet
+        // burst cannot create an unbounded number of tasks and retained payloads.
+        let request_slots = Arc::new(tokio::sync::Semaphore::new(256));
 
         tokio::spawn(async move {
             let mut chunk_assembler = ChunkAssembler::new(Duration::from_secs(30));
@@ -525,6 +542,13 @@ impl NetworkManager {
                 };
 
                 metrics.inc_bytes_received(len);
+
+                // NodeX encrypted voice frames are small and latency-sensitive.
+                // Deliver them directly to the messenger without RPC/DHT parsing.
+                if len >= 4 && &buf[..4] == b"NXCA" {
+                    datagram_handler(&buf[..len], src_addr);
+                    continue;
+                }
 
                 // Chunk-aware decode: binary chunks start with 'NXCK'
                 let msg = if len >= 4 && &buf[..4] == crate::chunking::BINARY_MAGIC {
@@ -571,17 +595,20 @@ impl NetworkManager {
                 };
 
                 if let UpdateResult::Full(oldest) = update_res {
-                    let nm_clone = Arc::clone(&nm);
-                    let rt_clone = Arc::clone(&routing_table);
-                    tokio::spawn(async move {
-                        let ping_res = nm_clone
-                            .call(oldest.addr, RpcPayload::Ping, Duration::from_secs(3), 1)
-                            .await;
-                        if ping_res.is_err() {
-                            let mut rt = rt_clone.write().await;
-                            rt.replace_oldest(contact);
-                        }
-                    });
+                    if let Ok(permit) = Arc::clone(&request_slots).try_acquire_owned() {
+                        let nm_clone = Arc::clone(&nm);
+                        let rt_clone = Arc::clone(&routing_table);
+                        tokio::spawn(async move {
+                            let _permit = permit;
+                            let ping_res = nm_clone
+                                .call(oldest.addr, RpcPayload::Ping, Duration::from_secs(3), 1)
+                                .await;
+                            if ping_res.is_err() {
+                                let mut rt = rt_clone.write().await;
+                                rt.replace_oldest(contact);
+                            }
+                        });
+                    }
                 }
 
                 if msg.is_response() {
@@ -597,9 +624,14 @@ impl NetworkManager {
                         }
                     }
                 } else {
+                    let permit = match Arc::clone(&request_slots).try_acquire_owned() {
+                        Ok(permit) => permit,
+                        Err(_) => continue,
+                    };
                     let nm_clone = Arc::clone(&nm);
                     let handler_clone = Arc::clone(&handler);
                     tokio::spawn(async move {
+                        let _permit = permit;
                         if let Some(reply) = handler_clone(msg, src_addr).await {
                             if let Err(e) = nm_clone.send_message(src_addr, &reply).await {
                                 eprintln!("[ERROR] Failed to send reply to {}: {}", src_addr, e);

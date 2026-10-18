@@ -3,6 +3,8 @@ target/
 .cargo/
 **/*.rs.bk
 *.pdb
+**/target/
+**/Cargo.lock.tmp
 
 # Local NodeX runtime databases and state files
 *.json.bak
@@ -12,6 +14,60 @@ nodex_*state*.json
 *.key
 *.ready
 *.log
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+**/test_db_*.json
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Local credentials and machine-specific environment files
+.env
+.env.*
+!.env.example
+local.properties
+
+# Local build, IDE, and dependency caches
+.gradle/
+**/.gradle/
+**/.gradle_home/
+**/build/
+**/captures/
+**/.externalNativeBuild/
+**/.cxx/
+*.apk
+*.aab
+*.iml
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local screenshots, emulator captures, and scratch diagnostics
+/emulator_*.png
+/phone_screen.png
+/nodex-after-install.png
+/nodex-chatlist.png
+/nodex-android/emulator_*.png
+/print_contacts.py
+/test_call_dht.py
+/test_call_flow.py
+/test_dht2.py
+/test_key_hash.py
+/test_persistent.py
+/test_probe.py
+/test_send_emulator.py
+/udp_bridge.py
+/brandmark_dump.txt
+/docs/gui-redesign-tz.txt
+/docs/ANDROID_BUGS.md
 
 # Project data directory
 /data/*
@@ -20,11 +76,3 @@ nodex_*state*.json
 
 # Distribution bundles
 /dist/
-
-# IDE and Editor configurations
-.idea/
-.vscode/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db

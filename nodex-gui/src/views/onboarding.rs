@@ -74,18 +74,17 @@ fn render_step_welcome(ui: &mut Ui, state: &mut AppState, theme: &Theme) {
 
             ui.add_space(18.0);
 
-            // Feature Highlights
-            feature_badge(ui, "[ E2EE ]", "End-to-End Encrypted", "Double Ratchet + XChaCha20-Poly1305 with Forward Secrecy", theme);
+            feature_badge(ui, "E2EE", "End-to-End Encrypted", "Double Ratchet + XChaCha20-Poly1305 with Forward Secrecy", theme);
             ui.add_space(8.0);
-            feature_badge(ui, "[ DHT  ]", "Direct P2P Kademlia Mesh", "NAT Hole-Punching & Opt-In Offline Store-and-Forward", theme);
+            feature_badge(ui, "DHT", "Direct P2P Kademlia Mesh", "NAT Hole-Punching & Opt-In Offline Store-and-Forward", theme);
             ui.add_space(8.0);
-            feature_badge(ui, "[ STEGO]", "Steganography & Audio Chirp", "Hidden carriers & 3-second chirp invitations", theme);
+            feature_badge(ui, "STEGO", "Steganography & Audio Chirp", "Hidden carriers & 3-second chirp invitations", theme);
 
             ui.add_space(20.0);
 
             // Primary action: Create new
             let create_btn = egui::Button::new(
-                egui::RichText::new("[ Create New Account ]")
+                egui::RichText::new("Создать новый аккаунт")
                     .size(13.0)
                     .strong()
                     .color(Color32::WHITE),
@@ -109,7 +108,7 @@ fn render_step_welcome(ui: &mut Ui, state: &mut AppState, theme: &Theme) {
 
             // Secondary action: Restore
             let restore_btn = egui::Button::new(
-                egui::RichText::new("[ Restore from 12/24-word Seed ]")
+                egui::RichText::new("Восстановить по сид-фразе (12/24 слов)")
                     .size(12.0)
                     .color(theme.text_primary),
             )
@@ -211,7 +210,7 @@ fn render_step_profile(ui: &mut Ui, state: &mut AppState, theme: &Theme) {
             let can_proceed = !state.my_name.trim().is_empty();
 
             let next_btn = egui::Button::new(
-                egui::RichText::new("[ Continue to Seed Backup ]")
+                egui::RichText::new("Продолжить к сохранению фразы")
                     .size(13.0)
                     .strong()
                     .color(if can_proceed { Color32::WHITE } else { theme.text_muted }),
@@ -234,11 +233,11 @@ fn render_step_profile(ui: &mut Ui, state: &mut AppState, theme: &Theme) {
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button(egui::RichText::new("[ Back ]").color(theme.text_muted)).clicked() {
+                if ui.button(egui::RichText::new("Назад").color(theme.text_muted)).clicked() {
                     state.onboarding_step = 0;
                 }
                 if std::path::Path::new(&format!("nodex_account_{}.ready", state.port)).exists() {
-                    if ui.button(egui::RichText::new("[ Cancel & Return ]").color(theme.text_muted)).clicked() {
+                    if ui.button(egui::RichText::new("Отмена").color(theme.text_muted)).clicked() {
                         state.is_onboarded = true;
                     }
                 }
@@ -300,21 +299,21 @@ fn render_step_seed_generation(ui: &mut Ui, state: &mut AppState, theme: &Theme)
             ui.add_space(14.0);
 
             ui.horizontal(|ui| {
-                let copy_btn = egui::Button::new(egui::RichText::new("[ Copy All Words ]").size(11.5).color(theme.text_primary))
+                let copy_btn = egui::Button::new(egui::RichText::new("Скопировать все слова").size(11.5).color(theme.text_primary))
                     .fill(theme.bubble_other_bg)
                     .stroke(Stroke::new(1.0_f32, theme.border_color))
                     .rounding(Rounding::same(8.0));
-                if ui.add_sized(Vec2::new(140.0, 28.0), copy_btn).clicked() {
+                if ui.add_sized(Vec2::new(160.0, 28.0), copy_btn).clicked() {
                     ui.output_mut(|o| o.copied_text = state.mnemonic_seed.clone());
                 }
 
                 ui.add_space(8.0);
 
-                let gen_btn = egui::Button::new(egui::RichText::new("[ Generate New Phrase ]").size(11.5).color(theme.text_primary))
+                let gen_btn = egui::Button::new(egui::RichText::new("Сгенерировать новую").size(11.5).color(theme.text_primary))
                     .fill(theme.bubble_other_bg)
                     .stroke(Stroke::new(1.0_f32, theme.border_color))
                     .rounding(Rounding::same(8.0));
-                if ui.add_sized(Vec2::new(170.0, 28.0), gen_btn).clicked() {
+                if ui.add_sized(Vec2::new(160.0, 28.0), gen_btn).clicked() {
                     state.mnemonic_seed = if state.mnemonic_length == 12 {
                         MnemonicManager::generate_12_words().unwrap_or_default()
                     } else {
@@ -327,7 +326,7 @@ fn render_step_seed_generation(ui: &mut Ui, state: &mut AppState, theme: &Theme)
             let is_confirmed = state.seed_confirmed_saved;
             ui.checkbox(
                 &mut state.seed_confirmed_saved,
-                egui::RichText::new("I confirm that I have safely written down and backed up my seed phrase")
+                egui::RichText::new("Я подтверждаю, что сохранил и записал сид-фразу")
                     .size(12.0)
                     .color(if is_confirmed { theme.online_indicator } else { theme.text_primary }),
             );
@@ -336,7 +335,7 @@ fn render_step_seed_generation(ui: &mut Ui, state: &mut AppState, theme: &Theme)
 
             let can_finish = state.seed_confirmed_saved;
             let finish_btn = egui::Button::new(
-                egui::RichText::new(format!("[ Create Account & Launch NodeX ({}) ]", word_count))
+                egui::RichText::new(format!("Создать аккаунт и войти ({})", word_count))
                     .size(13.0)
                     .strong()
                     .color(if can_finish { Color32::WHITE } else { theme.text_muted }),
@@ -355,7 +354,7 @@ fn render_step_seed_generation(ui: &mut Ui, state: &mut AppState, theme: &Theme)
 
             ui.add_space(10.0);
             ui.horizontal(|ui| {
-                let back_btn = egui::Button::new(egui::RichText::new("[ Back to Profile ]").size(11.5).color(theme.text_muted))
+                let back_btn = egui::Button::new(egui::RichText::new("Назад к профилю").size(11.5).color(theme.text_muted))
                     .fill(theme.bubble_other_bg)
                     .stroke(Stroke::new(1.0_f32, theme.border_color))
                     .rounding(Rounding::same(8.0));
@@ -430,7 +429,7 @@ fn render_step_seed_restore(ui: &mut Ui, state: &mut AppState, theme: &Theme) {
             ui.add_space(16.0);
 
             let restore_btn = egui::Button::new(
-                egui::RichText::new("[ Restore Account & Enter ]")
+                egui::RichText::new("Восстановить аккаунт и войти")
                     .size(13.0)
                     .strong()
                     .color(if is_valid { Color32::WHITE } else { theme.text_muted }),
@@ -457,7 +456,7 @@ fn render_step_seed_restore(ui: &mut Ui, state: &mut AppState, theme: &Theme) {
             ui.add_space(10.0);
 
             ui.horizontal(|ui| {
-                let back_btn = egui::Button::new(egui::RichText::new("[ Back to Welcome ]").size(11.5).color(theme.text_muted))
+                let back_btn = egui::Button::new(egui::RichText::new("Назад к началу").size(11.5).color(theme.text_muted))
                     .fill(theme.bubble_other_bg)
                     .stroke(Stroke::new(1.0_f32, theme.border_color))
                     .rounding(Rounding::same(8.0));
@@ -466,7 +465,7 @@ fn render_step_seed_restore(ui: &mut Ui, state: &mut AppState, theme: &Theme) {
                 }
                 if std::path::Path::new(&format!("nodex_account_{}.ready", state.port)).exists() {
                     ui.add_space(8.0);
-                    let cancel_btn = egui::Button::new(egui::RichText::new("[ Cancel & Return ]").size(11.5).color(theme.text_muted))
+                    let cancel_btn = egui::Button::new(egui::RichText::new("Отмена").size(11.5).color(theme.text_muted))
                         .fill(theme.bubble_other_bg)
                         .stroke(Stroke::new(1.0_f32, theme.border_color))
                         .rounding(Rounding::same(8.0));

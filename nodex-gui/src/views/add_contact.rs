@@ -114,7 +114,7 @@ pub fn render_add_contact_modal(
             ui.add_space(14.0);
 
             ui.horizontal(|ui| {
-                if ui.button(egui::RichText::new("[ Отмена ]").color(theme.text_muted)).clicked() {
+                if ui.button(egui::RichText::new("Отмена").color(theme.text_muted)).clicked() {
                     state.modals.show_add_contact = false;
                 }
 

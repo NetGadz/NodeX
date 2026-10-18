@@ -74,13 +74,13 @@ pub fn render_lock_screen(ui: &mut Ui, state: &mut AppState, theme: &Theme) {
                 ui.add_space(14.0);
 
                 let unlock_btn = egui::Button::new(
-                    egui::RichText::new("[ Unlock ]")
+                    egui::RichText::new("Разблокировать")
                         .size(13.0)
                         .strong()
-                        .color(Color32::BLACK),
+                        .color(Color32::WHITE),
                 )
                 .fill(theme.accent)
-                .rounding(Rounding::ZERO);
+                .rounding(Rounding::same(8.0));
 
                 let width = ui.available_width();
                 let clicked = ui.add_sized(vec2(width, 36.0), unlock_btn).clicked();

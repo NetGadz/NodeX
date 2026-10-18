@@ -2,10 +2,7 @@ use egui::{Color32, Rounding, Stroke, Ui};
 use nodex_messenger::db::SavedChatMessage;
 use crate::components::attachment_card::draw_attachment_card;
 use crate::components::voice_player::{draw_voice_note, VoicePlaybackState};
-use crate::theme::{
-    BORDER_COLOR, BUBBLE_INCOMING, BUBBLE_OUTGOING, ONLINE_GREEN, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
-    ACCENT_BLUE,
-};
+use crate::theme::{BORDER_COLOR, ONLINE_GREEN, TEXT_MUTED, TEXT_SECONDARY};
 
 pub enum MessageAction {
     Reply(SavedChatMessage),
@@ -21,9 +18,12 @@ pub fn draw_message_bubble(
     msg: &SavedChatMessage,
     playback_state: &mut VoicePlaybackState,
     action_out: &mut Option<MessageAction>,
+    theme: &crate::theme::Theme,
+    font_size: f32,
+    bubble_rounding_val: f32,
 ) {
     let is_outgoing = !msg.incoming;
-    let bubble_bg = if is_outgoing { BUBBLE_OUTGOING } else { BUBBLE_INCOMING };
+    let bubble_bg = if is_outgoing { theme.bubble_outgoing_bg } else { theme.bubble_incoming_bg };
 
     let is_call_event = msg.text.starts_with("📞") || msg.text.starts_with("📵") || msg.text.starts_with("🚫");
 
@@ -59,21 +59,23 @@ pub fn draw_message_bubble(
         egui::Layout::left_to_right(egui::Align::Min)
     };
 
+    let r = bubble_rounding_val;
+    let tail_r = (r * 0.25).max(2.0);
     let bubble_rounding = if is_outgoing {
-        Rounding { nw: 14.0, ne: 14.0, sw: 14.0, se: 3.0 }
+        Rounding { nw: r, ne: r, sw: r, se: tail_r }
     } else {
-        Rounding { nw: 14.0, ne: 14.0, se: 14.0, sw: 3.0 }
+        Rounding { nw: r, ne: r, se: r, sw: tail_r }
     };
 
-    let max_bubble_w = (ui.available_width() * 0.65).clamp(140.0, 460.0);
+    let max_bubble_w = (ui.available_width() * 0.65).clamp(120.0, 480.0);
 
     ui.with_layout(layout, |ui| {
         ui.set_max_width(max_bubble_w);
         let frame_resp = egui::Frame::none()
             .fill(bubble_bg)
             .rounding(bubble_rounding)
-            .stroke(Stroke::new(1.0_f32, if is_outgoing { Color32::from_rgb(37, 99, 235) } else { BORDER_COLOR }))
-            .inner_margin(egui::Margin::symmetric(11.0, 7.0))
+            .stroke(Stroke::new(1.0_f32, if is_outgoing { theme.accent } else { theme.border_color }))
+            .inner_margin(egui::Margin::symmetric(12.0, 7.0))
             .show(ui, |ui| {
                 ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
@@ -85,7 +87,7 @@ pub fn draw_message_bubble(
                     // Pinned indicator badge
                     if msg.is_pinned {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("📌 Pinned").size(9.5).color(TEXT_MUTED));
+                            ui.label(egui::RichText::new("📌 Pinned").size(9.5).color(theme.text_muted));
                         });
                         ui.add_space(2.0);
                     }
@@ -95,10 +97,10 @@ pub fn draw_message_bubble(
                         egui::Frame::none()
                             .fill(Color32::from_rgb(16, 17, 23))
                             .rounding(Rounding::ZERO)
-                            .stroke(Stroke::new(1.0_f32, ACCENT_BLUE))
+                            .stroke(Stroke::new(1.0_f32, theme.accent))
                             .inner_margin(egui::Margin::symmetric(6.0, 3.0))
                             .show(ui, |ui| {
-                                ui.label(egui::RichText::new(reply_text).size(11.0).color(TEXT_SECONDARY));
+                                ui.label(egui::RichText::new(reply_text).size(11.0).color(theme.text_muted));
                             });
                         ui.add_space(4.0);
                     }
@@ -135,7 +137,7 @@ pub fn draw_message_bubble(
 
                         if is_short_single_line {
                             ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(&msg.text).size(13.5).color(TEXT_PRIMARY));
+                                ui.label(egui::RichText::new(&msg.text).size(font_size).color(theme.text_primary));
                                 ui.add_space(8.0);
                                 render_time_and_ticks(ui, msg, is_outgoing);
                             });
@@ -143,8 +145,8 @@ pub fn draw_message_bubble(
                             ui.add(
                                 egui::Label::new(
                                     egui::RichText::new(&msg.text)
-                                        .size(13.5)
-                                        .color(TEXT_PRIMARY),
+                                        .size(font_size)
+                                        .color(theme.text_primary),
                                 )
                                 .wrap_mode(egui::TextWrapMode::Wrap),
                             );
@@ -223,12 +225,12 @@ fn render_time_and_ticks(ui: &mut Ui, msg: &SavedChatMessage, is_outgoing: bool)
     ui.label(egui::RichText::new(time_str).size(10.0).color(time_color));
 
     if is_outgoing {
-        ui.add_space(2.0);
-        // Quiet UX Delivery Check: + (sent to DHT), ++ (delivered to peer)
+        ui.add_space(3.0);
+        // Telegram style checkmarks: ✓ (sent), ✓✓ (delivered/read)
         if msg.delivered {
-            ui.label(egui::RichText::new("++").size(10.5).strong().color(ONLINE_GREEN));
+            ui.label(egui::RichText::new("✓✓").size(11.0).color(Color32::from_rgb(112, 180, 235)));
         } else {
-            ui.label(egui::RichText::new("+").size(10.5).color(TEXT_MUTED));
+            ui.label(egui::RichText::new("✓").size(11.0).color(TEXT_MUTED));
         }
     }
 }

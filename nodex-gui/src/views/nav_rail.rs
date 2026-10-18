@@ -64,6 +64,25 @@ pub fn render_nav_rail(ui: &mut Ui, state: &mut AppState, theme: &Theme) {
             ui.add_space(4.0);
         }
 
+        // Seed phrase & security button
+        let (seed_rect, seed_resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click());
+        let seed_painter = ui.painter_at(seed_rect);
+        if seed_resp.hovered() {
+            seed_painter.rect_filled(seed_rect, Rounding::same(8.0), theme.bubble_other_bg);
+            seed_painter.rect_stroke(seed_rect, Rounding::same(8.0), Stroke::new(1.0_f32, BORDER_COLOR));
+        }
+        seed_painter.text(
+            seed_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "🔐",
+            egui::FontId::proportional(17.0),
+            if seed_resp.hovered() { theme.accent } else { theme.text_muted },
+        );
+        if seed_resp.clicked() {
+            state.modals.show_mnemonic_modal = true;
+        }
+        ui.add_space(4.0);
+
         // 6. Settings at bottom
         let (gear_rect, gear_resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click());
         let gear_painter = ui.painter_at(gear_rect);
@@ -96,11 +115,14 @@ fn nav_item<F: FnOnce()>(
     let painter = ui.painter_at(rect);
 
     if is_active {
-        painter.rect_filled(rect, Rounding::same(8.0), theme.bubble_outgoing_bg);
-        painter.rect_stroke(rect, Rounding::same(8.0), Stroke::new(1.0_f32, theme.accent));
+        painter.rect_filled(rect, Rounding::same(10.0), theme.bubble_outgoing_bg);
+        let indicator_rect = egui::Rect::from_min_max(
+            egui::pos2(rect.min.x - 3.0, rect.min.y + 8.0),
+            egui::pos2(rect.min.x, rect.max.y - 8.0),
+        );
+        painter.rect_filled(indicator_rect, Rounding::same(2.0), theme.accent);
     } else if resp.hovered() {
-        painter.rect_filled(rect, Rounding::same(8.0), theme.bubble_other_bg);
-        painter.rect_stroke(rect, Rounding::same(8.0), Stroke::new(1.0_f32, BORDER_COLOR));
+        painter.rect_filled(rect, Rounding::same(10.0), theme.bubble_other_bg);
     }
 
     let text_color = if is_active { Color32::WHITE } else { theme.text_muted };

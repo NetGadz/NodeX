@@ -9,9 +9,9 @@ pub fn draw_avatar(ui: &mut Ui, id_key: &str, display_name: &str, size: f32, is_
     let rounding = Rounding::same(size * 0.28);
 
     if is_saved_messages {
-        let bg_color = Color32::from_rgb(37, 99, 235); // Sleek Royal Blue
+        let bg_color = Color32::from_rgb(43, 82, 120); // Authentic Telegram Slate
         painter.rect_filled(rect, rounding, bg_color);
-        painter.rect_stroke(rect, rounding, Stroke::new(1.0_f32, Color32::from_rgb(59, 130, 246)));
+        painter.rect_stroke(rect, rounding, Stroke::new(1.0_f32, Color32::from_rgb(82, 136, 193)));
         crate::components::icons::draw_star_bookmark_icon(&painter, rect, Color32::WHITE);
     } else {
         let bg_color = crate::theme::get_avatar_color(id_key);
@@ -30,11 +30,11 @@ pub fn draw_avatar(ui: &mut Ui, id_key: &str, display_name: &str, size: f32, is_
         );
     }
 
-    if is_online {
+    if is_online && !is_saved_messages {
         let dot_r = (size * 0.14).clamp(3.0, 6.0);
         let dot_pos = egui::pos2(rect.max.x - dot_r * 0.8, rect.max.y - dot_r * 0.8);
-        painter.circle_filled(dot_pos, dot_r + 1.5, Color32::from_rgb(19, 23, 34));
-        painter.circle_filled(dot_pos, dot_r, Color32::from_rgb(16, 185, 129));
+        painter.circle_filled(dot_pos, dot_r + 1.5, Color32::from_rgb(23, 33, 43));
+        painter.circle_filled(dot_pos, dot_r, Color32::from_rgb(78, 174, 134));
     }
 
     response

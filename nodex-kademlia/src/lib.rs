@@ -36,6 +36,55 @@ use crate::rpc::{NetworkManager, RpcMessage, RpcPayload};
 use crate::state::StateManager;
 use crate::storage::{start_storage_maintenance_task, Storage, DEFAULT_TTL};
 
+// Keep mailbox arrays comfortably below the RPC codec's 64 KiB hard limit.
+const MAX_MAILBOX_VALUE_BYTES: usize = 48 * 1024;
+const MAX_MAILBOX_ENVELOPES: usize = 50;
+
+fn merge_store_value(existing: Option<Vec<u8>>, incoming: Vec<u8>) -> (Vec<u8>, bool, usize) {
+    let incoming_envelopes = serde_json::from_slice::<Vec<serde_json::Value>>(&incoming);
+    if let Ok(new_envelopes) = incoming_envelopes {
+        let mut envelopes = existing
+            .as_deref()
+            .and_then(|bytes| serde_json::from_slice::<Vec<serde_json::Value>>(bytes).ok())
+            .unwrap_or_default();
+        let mut rejected = false;
+        for envelope in new_envelopes {
+            if serde_json::to_vec(&envelope)
+                .map(|bytes| bytes.len() > MAX_MAILBOX_VALUE_BYTES)
+                .unwrap_or(true)
+            {
+                rejected = true;
+                continue;
+            }
+            if !envelopes.contains(&envelope) {
+                envelopes.push(envelope);
+            }
+        }
+        if envelopes.len() > MAX_MAILBOX_ENVELOPES {
+            let excess = envelopes.len() - MAX_MAILBOX_ENVELOPES;
+            envelopes.drain(..excess);
+        }
+
+        let mut encoded = serde_json::to_vec(&envelopes).unwrap_or_default();
+        let mut pruned = 0;
+        while encoded.len() > MAX_MAILBOX_VALUE_BYTES && !envelopes.is_empty() {
+            envelopes.remove(0);
+            pruned += 1;
+            encoded = serde_json::to_vec(&envelopes).unwrap_or_default();
+        }
+        // A single unusually large envelope must not replace a readable mailbox.
+        if encoded.len() > MAX_MAILBOX_VALUE_BYTES {
+            return (existing.unwrap_or_default(), false, pruned);
+        }
+        return (encoded, !rejected, pruned);
+    }
+
+    if incoming.len() > core_ffi::MAX_VALUE_SIZE {
+        return (existing.unwrap_or_default(), false, 0);
+    }
+    (incoming, true, 0)
+}
+
 #[derive(Clone)]
 pub struct KademliaNode {
     pub node_id: NodeId,
@@ -46,6 +95,8 @@ pub struct KademliaNode {
     pub peer_manager: PeerManager,
     pub config: NodeConfig,
     pub on_store_notify: Arc<tokio::sync::Notify>,
+    /// Authenticated application datagrams received outside the Kademlia RPC codec.
+    pub on_datagram: Arc<tokio::sync::broadcast::Sender<(Vec<u8>, SocketAddr)>>,
 }
 
 impl KademliaNode {
@@ -102,6 +153,8 @@ impl KademliaNode {
         let health = HealthTracker::new(crate::health::NodeHealthState::Online);
         let peer_manager = PeerManager::new(300);
         let on_store_notify = Arc::new(tokio::sync::Notify::new());
+        let (datagram_tx, _) = tokio::sync::broadcast::channel(512);
+        let on_datagram = Arc::new(datagram_tx);
 
         let node = Self {
             node_id,
@@ -112,6 +165,7 @@ impl KademliaNode {
             peer_manager,
             config: config.clone(),
             on_store_notify: Arc::clone(&on_store_notify),
+            on_datagram: Arc::clone(&on_datagram),
         };
 
         // Populate routing table with restored contacts
@@ -128,7 +182,8 @@ impl KademliaNode {
         let notify_for_rx = Arc::clone(&on_store_notify);
         let local_id = node_id;
 
-        network.start_receive_loop(rt_for_rx.clone(), move |msg, _src| {
+        let datagram_tx = Arc::clone(&on_datagram);
+        network.start_receive_loop_with_datagram(rt_for_rx.clone(), move |msg, _src| {
             let rt = Arc::clone(&rt_for_rx);
             let st = Arc::clone(&st_for_rx);
             let notify = Arc::clone(&notify_for_rx);
@@ -145,31 +200,22 @@ impl KademliaNode {
                             value.len(),
                             msg.sender_id
                         );
-                        {
+                        let (_, accepted, pruned) = {
                             let mut s = st.write().await;
-                            if let Some(existing_val) = s.get(&key) {
-                                if let (Ok(mut exist_envs), Ok(new_envs)) = (
-                                    serde_json::from_slice::<Vec<serde_json::Value>>(&existing_val),
-                                    serde_json::from_slice::<Vec<serde_json::Value>>(&value),
-                                ) {
-                                    exist_envs.extend(new_envs);
-                                    if let Ok(merged) = serde_json::to_vec(&exist_envs) {
-                                        s.put(key, merged, DEFAULT_TTL);
-                                    } else {
-                                        s.put(key, value, DEFAULT_TTL);
-                                    }
-                                } else {
-                                    s.put(key, value, DEFAULT_TTL);
-                                }
-                            } else {
-                                s.put(key, value, DEFAULT_TTL);
+                            let (merged, ok, removed) = merge_store_value(s.get(&key), value);
+                            if ok {
+                                s.put(key, merged.clone(), DEFAULT_TTL);
                             }
+                            (merged, ok, removed)
+                        };
+                        if pruned > 0 {
+                            eprintln!("[MAILBOX] Pruned {pruned} oldest envelope(s) to keep key {key} under {} bytes", MAX_MAILBOX_VALUE_BYTES);
                         }
                         notify.notify_waiters();
                         Some(RpcMessage::new(
                             msg.request_id,
                             local_id,
-                            RpcPayload::StoreAck { ok: true },
+                            RpcPayload::StoreAck { ok: accepted },
                         ))
                     }
                     RpcPayload::FindNode { target_id } => {
@@ -193,8 +239,20 @@ impl KademliaNode {
                             key, msg.sender_id
                         );
                         let value_opt = {
-                            let s = st.read().await;
-                            s.get(&key)
+                            let mut s = st.write().await;
+                            let stored = s.get(&key);
+                            if let Some(value) = stored {
+                                let (bounded, _accepted, pruned) = merge_store_value(None, value.clone());
+                                if bounded.len() < value.len() {
+                                    s.put(key, bounded.clone(), DEFAULT_TTL);
+                                    eprintln!("[MAILBOX] Repaired oversized mailbox key {key}; removed {pruned} envelope(s)");
+                                    Some(bounded)
+                                } else {
+                                    Some(value)
+                                }
+                            } else {
+                                None
+                            }
                         };
                         if let Some(val) = value_opt {
                             Some(RpcMessage::new(
@@ -223,7 +281,7 @@ impl KademliaNode {
                     _ => None,
                 }
             }
-        });
+        }, move |bytes, src| { let _ = datagram_tx.send((bytes.to_vec(), src)); });
 
         // Start background storage maintenance (TTL cleanup & republish)
         start_storage_maintenance_task(

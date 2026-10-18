@@ -1,13 +1,17 @@
 [Unit]
-Description=NodeX Kademlia DHT Relay & Bootstrap Node
-After=network.target
+Description=NodeX Kademlia DHT Bootstrap Node
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
-User=nodex
-ExecStart=/usr/local/bin/nodex --cli --port 8000
+User=root
+WorkingDirectory=/root/NodeX
+ExecStart=/root/NodeX/target/release/nodex-cli --port 8443 --ip 0.0.0.0 --name GenesisBootstrap --daemon --no-bootstrap --state-file /root/NodeX/node_state.json
 Restart=always
-RestartSec=5
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=20
 LimitNOFILE=65536
 
 [Install]

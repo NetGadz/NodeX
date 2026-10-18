@@ -30,6 +30,10 @@ pub struct Cli {
     #[arg(short, long)]
     pub bootstrap: Option<SocketAddr>,
 
+    /// Run this node as a standalone bootstrap seed without upstream peers
+    #[arg(long)]
+    pub no_bootstrap: bool,
+
     /// State file path to load/save persistent Node ID and contacts
     #[arg(long)]
     pub state_file: Option<String>,
@@ -37,6 +41,10 @@ pub struct Cli {
     /// User Display Name for Messenger
     #[arg(long, default_value = "CliNode")]
     pub name: String,
+
+    /// Run as headless daemon in background without exiting when stdin reaches EOF
+    #[arg(long)]
+    pub daemon: bool,
 }
 
 #[tokio::main]
@@ -63,6 +71,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
     if let Some(bootstrap) = cli.bootstrap {
         config.bootstrap = vec![bootstrap];
+    }
+    if cli.no_bootstrap {
+        config.bootstrap.clear();
     }
     if let Some(state_file) = cli.state_file {
         config.state_file = state_file;
@@ -126,6 +137,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 MessengerEvent::CallAudioReceived { sender_id: _, chunk: _ } => {
                     // In CLI, suppress noisy real-time audio chunk logs
                 }
+                MessengerEvent::CallAudioFrameReceived { .. } => {
+                    // Audio is consumed by GUI/mobile clients, not the daemon console.
+                }
             }
         }
     });
@@ -146,8 +160,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let stdin = tokio::io::stdin();
     let mut reader = BufReader::new(stdin).lines();
+    let mut is_clean_exit = false;
 
-    while let Ok(Some(line)) = reader.next_line().await {
+    if cli.daemon {
+        println!("[DAEMON] Running in non-interactive daemon mode on {}. Press Ctrl+C to stop.", node.network.local_addr);
+        wait_for_shutdown_signal().await?;
+        if config.save_state_on_exit {
+            node.save_state().await?;
+        }
+        is_clean_exit = true;
+    } else {
+        while let Ok(Some(line)) = reader.next_line().await {
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -373,6 +396,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 if config.save_state_on_exit {
                     let _ = node.save_state().await;
                 }
+                is_clean_exit = true;
                 break;
             }
             _ => {
@@ -380,6 +404,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
         }
     }
+    }
 
+    if !is_clean_exit {
+        println!("[DAEMON] Stdin reached EOF (running in background / nohup). Node is active and serving P2P requests. Press Ctrl+C to terminate.");
+        wait_for_shutdown_signal().await?;
+        println!("Shutting down node...");
+        if config.save_state_on_exit {
+            let _ = node.save_state().await;
+        }
+    }
+
+    Ok(())
+}
+
+async fn wait_for_shutdown_signal() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    #[cfg(unix)]
+    {
+        let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => result?,
+            _ = terminate.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    tokio::signal::ctrl_c().await?;
     Ok(())
 }

@@ -830,6 +830,8 @@ version = "0.1.0"
 dependencies = [
  "bip39",
  "crc32fast",
+ "ed25519-dalek",
+ "hkdf",
  "serde",
  "sha1",
  "sha2",
@@ -1114,6 +1116,7 @@ checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
+ "rand_core",
  "serde",
  "sha2",
  "subtle",

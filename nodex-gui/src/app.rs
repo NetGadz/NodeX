@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use eframe::App;
-use egui::{CentralPanel, SidePanel};
+use egui::{CentralPanel, Color32, Margin, Rounding, SidePanel, Stroke, Vec2};
 
 use crate::components::media_viewer::render_media_viewer;
 use crate::state::{AppState, CallState};
@@ -78,7 +78,7 @@ impl NodeXApp {
                     }
                     MessengerEvent::MessageReceived(saved_msg) => {
                         self.state.network_stats.messages_received += 1;
-                        if self.state.notifications_enabled {
+                        if self.state.notifications_enabled && saved_msg.sender_id_hex != self.state.my_node_id {
                             self.state.audio_player.play_notification_sound();
                         }
                         
@@ -86,6 +86,24 @@ impl NodeXApp {
                         let mut sender_name = format!("Peer {}", &sender_id.chars().take(8).collect::<String>());
 
                         if sender_id != self.state.my_node_id {
+                            self.state.mark_peer_active(&sender_id);
+                        }
+
+                        if sender_id == self.state.my_node_id {
+                            sender_name = format!("{} (Вы)", self.state.my_name);
+                            let exists = self.contacts.iter().any(|c| c.user_id_hex == sender_id);
+                            if !exists {
+                                let self_contact = nodex_messenger::db::SavedContact {
+                                    user_id_hex: sender_id.clone(),
+                                    name: sender_name.clone(),
+                                    bio: "Личные сообщения".to_string(),
+                                    ed25519_pub_hex: sender_id.clone(),
+                                    x25519_pub_hex: sender_id.clone(),
+                                    last_seen_addr: "127.0.0.1:0".to_string(),
+                                };
+                                self.contacts.insert(0, self_contact);
+                            }
+                        } else {
                             let mut exists = false;
                             for contact in &mut self.contacts {
                                 if contact.user_id_hex == sender_id || contact.ed25519_pub_hex == sender_id {
@@ -185,6 +203,9 @@ impl NodeXApp {
                             nodex_messenger::calls::CallSignalType::Answer => {
                                 self.state.audio_player.start_call_audio();
                                 if let Some(cs) = &mut self.state.call_state {
+                                    if cs.peer_id != signal.caller_id_hex || cs.call_id != signal.call_id || cs.is_incoming {
+                                        continue;
+                                    }
                                     cs.is_connected = true;
                                     let _ = self.state.mic_recorder.ensure_started();
                                     println!("[CALL] Call answered and connected with {}", cs.peer_id);
@@ -195,6 +216,9 @@ impl NodeXApp {
                                 self.state.audio_player.stop_call_audio();
                                 self.state.audio_player.play_hangup_sound();
                                 self.state.mic_recorder.stop();
+                                if self.state.call_state.as_ref().map_or(true, |cs| cs.peer_id != signal.caller_id_hex || cs.call_id != signal.call_id) {
+                                    continue;
+                                }
                                 if let Some(cs) = self.state.call_state.take() {
                                     let peer = if !cs.peer_id.is_empty() { cs.peer_id } else { signal.caller_id_hex.clone() };
                                     self.log_call_message(&peer, "🚫 Отклоненный звонок", false);
@@ -206,6 +230,9 @@ impl NodeXApp {
                                 self.state.audio_player.stop_call_audio();
                                 self.state.audio_player.play_hangup_sound();
                                 self.state.mic_recorder.stop();
+                                if self.state.call_state.as_ref().map_or(true, |cs| cs.peer_id != signal.caller_id_hex || cs.call_id != signal.call_id) {
+                                    continue;
+                                }
                                 if let Some(cs) = self.state.call_state.take() {
                                     let peer = if !cs.peer_id.is_empty() { cs.peer_id } else { signal.caller_id_hex.clone() };
                                     if cs.is_connected {
@@ -223,9 +250,9 @@ impl NodeXApp {
                             _ => {}
                         }
                     }
-                    MessengerEvent::CallAudioReceived { sender_id: _, chunk } => {
+                    MessengerEvent::CallAudioReceived { sender_id, chunk } => {
                         if let Some(cs) = &self.state.call_state {
-                            if cs.is_connected {
+                            if cs.is_connected && cs.peer_id == sender_id && cs.call_id == chunk.call_id {
                                 use base64::Engine;
                                 if let Ok(pcm_bytes) = base64::engine::general_purpose::STANDARD.decode(&chunk.pcm_base64) {
                                     let mut samples = Vec::with_capacity(pcm_bytes.len() / 2);
@@ -235,6 +262,13 @@ impl NodeXApp {
                                     }
                                     self.state.audio_player.play_call_audio_samples(&samples, chunk.sample_rate);
                                 }
+                            }
+                        }
+                    }
+                    MessengerEvent::CallAudioFrameReceived { sender_id, call_id, seq: _, sample_rate, pcm } => {
+                        if let Some(cs) = &self.state.call_state {
+                            if cs.is_connected && cs.peer_id == sender_id && cs.call_id == call_id {
+                                self.state.audio_player.play_call_audio_samples(&pcm, sample_rate);
                             }
                         }
                     }
@@ -291,7 +325,7 @@ impl App for NodeXApp {
                     eprintln!("[MIC ERROR] Failed to start microphone: {}", e);
                 }
 
-                if cs.last_audio_send.elapsed().as_millis() >= 40 {
+                if cs.last_audio_send.elapsed().as_millis() >= 20 {
                     cs.last_audio_send = std::time::Instant::now();
                     let samples = self.state.mic_recorder.drain_call_samples();
                     if !cs.is_muted && !samples.is_empty() {
@@ -332,7 +366,7 @@ impl App for NodeXApp {
             ctx.request_repaint();
         }
 
-        let theme = Theme::from_mode(self.state.theme_mode);
+        let theme = Theme::from_mode_with_accent(self.state.theme_mode, self.state.custom_accent);
         theme.apply_to_ctx(ctx);
 
         // Keyboard shortcut Ctrl+L to lock app
@@ -434,41 +468,78 @@ impl App for NodeXApp {
             }
 
             let is_saved_messages = self.state.selected_chat_id.as_deref() == Some("self_saved_messages");
+            let is_self_chat = self.state.selected_chat_id.as_deref() == Some(&self.state.my_node_id);
 
-            let active_contact = if !is_saved_messages {
+            let active_contact = if is_saved_messages {
+                None
+            } else if is_self_chat {
+                Some(nodex_messenger::db::SavedContact {
+                    user_id_hex: self.state.my_node_id.clone(),
+                    name: format!("{} (Вы)", self.state.my_name),
+                    bio: "Личные сообщения".to_string(),
+                    ed25519_pub_hex: self.state.my_node_id.clone(),
+                    x25519_pub_hex: self.state.my_node_id.clone(),
+                    last_seen_addr: "127.0.0.1:0".to_string(),
+                })
+            } else {
                 self.contacts
                     .iter()
                     .find(|c| self.state.selected_chat_id.as_deref() == Some(&c.user_id_hex))
-            } else {
-                None
+                    .cloned()
+                    .or_else(|| {
+                        self.state.selected_chat_id.as_ref().map(|sel_id| {
+                            nodex_messenger::db::SavedContact {
+                                user_id_hex: sel_id.clone(),
+                                name: format!("Узел {}", &sel_id[..6.min(sel_id.len())]),
+                                bio: "P2P контакт".to_string(),
+                                ed25519_pub_hex: sel_id.clone(),
+                                x25519_pub_hex: sel_id.clone(),
+                                last_seen_addr: "".to_string(),
+                            }
+                        })
+                    })
             };
 
-            let active_group = if !is_saved_messages {
+            let active_group = if !is_saved_messages && !is_self_chat {
                 self.groups
                     .iter()
                     .find(|g| self.state.selected_group_id.as_deref() == Some(&g.group_id))
+                    .cloned()
             } else {
                 None
             };
 
-            let active_target_id = if is_saved_messages {
-                Some("self_saved_messages")
+            let active_target_id: Option<String> = if is_saved_messages {
+                Some("self_saved_messages".to_string())
+            } else if is_self_chat {
+                Some(self.state.my_node_id.clone())
             } else {
                 active_contact
-                    .map(|c| c.user_id_hex.as_str())
-                    .or_else(|| active_group.map(|g| g.group_id.as_str()))
+                    .as_ref()
+                    .map(|c| c.user_id_hex.clone())
+                    .or_else(|| active_group.as_ref().map(|g| g.group_id.clone()))
+                    .or_else(|| self.state.selected_chat_id.clone())
             };
 
-            let active_messages: Vec<SavedChatMessage> = if is_saved_messages {
+            let active_messages: Vec<SavedChatMessage> = if is_saved_messages || is_self_chat {
                 self.messages
                     .iter()
                     .filter(|m| m.recipient_id_hex == "self_saved_messages" || (m.sender_id_hex == self.state.my_node_id && m.recipient_id_hex == self.state.my_node_id))
                     .cloned()
                     .collect()
-            } else if let Some(target_id) = active_target_id {
+            } else if let Some(ref target_id) = active_target_id {
                 self.messages
                     .iter()
-                    .filter(|m| m.sender_id_hex == target_id || m.recipient_id_hex == target_id)
+                    .filter(|m| {
+                        if m.recipient_id_hex == "self_saved_messages" || (m.sender_id_hex == self.state.my_node_id && m.recipient_id_hex == self.state.my_node_id) {
+                            false
+                        } else if let Some(ref gid) = m.group_id {
+                            gid == target_id
+                        } else {
+                            (&m.sender_id_hex == target_id && &m.recipient_id_hex == &self.state.my_node_id)
+                                || (&m.sender_id_hex == &self.state.my_node_id && &m.recipient_id_hex == target_id)
+                        }
+                    })
                     .cloned()
                     .collect()
             } else {
@@ -488,8 +559,8 @@ impl App for NodeXApp {
                             ui,
                             &mut self.state,
                             &theme,
-                            active_contact,
-                            active_group,
+                            active_contact.as_ref(),
+                            active_group.as_ref(),
                             &active_messages,
                         );
                     });
@@ -517,8 +588,8 @@ impl App for NodeXApp {
                         ui,
                         &mut self.state,
                         &theme,
-                        active_contact,
-                        active_group,
+                        active_contact.as_ref(),
+                        active_group.as_ref(),
                         &active_messages,
                         &mut chat_event_out,
                     );
@@ -526,7 +597,10 @@ impl App for NodeXApp {
                     if let Some(event) = chat_event_out {
                         match event {
                             ChatEventOut::SendMessage { text, reply_to_id } => {
-                                if let Some(target_id) = active_target_id {
+                                if let Some(ref target_id) = active_target_id {
+                                    let is_saved_messages = target_id == "self_saved_messages";
+                                    let is_self_node = target_id == &self.state.my_node_id;
+
                                     self.state.audio_player.play_sent_sound();
                                     let new_msg = SavedChatMessage {
                                         id: format!("msg_{}", hex::encode(&rand_bytes())),
@@ -540,15 +614,66 @@ impl App for NodeXApp {
                                         is_edited: false,
                                         edit_timestamp: None,
                                         reactions: std::collections::HashMap::new(),
-                                        group_id: active_group.map(|g| g.group_id.clone()),
+                                        group_id: active_group.as_ref().map(|g| g.group_id.clone()),
                                         is_pinned: false,
                                         expires_at: None,
                                         timestamp: chrono::Utc::now().timestamp() as u64,
                                         incoming: false,
-                                        delivered: is_saved_messages,
+                                        delivered: is_saved_messages || is_self_node,
                                     };
                                     self.messages.push(new_msg);
                                     self.state.network_stats.messages_sent += 1;
+
+                                    if is_self_node {
+                                        let exists = self.contacts.iter().any(|c| c.user_id_hex == self.state.my_node_id);
+                                        if !exists {
+                                            let self_contact = nodex_messenger::db::SavedContact {
+                                                user_id_hex: self.state.my_node_id.clone(),
+                                                name: format!("{} (Вы)", self.state.my_name),
+                                                bio: "Личные сообщения".to_string(),
+                                                ed25519_pub_hex: self.state.my_node_id.clone(),
+                                                x25519_pub_hex: self.state.my_node_id.clone(),
+                                                last_seen_addr: "127.0.0.1:0".to_string(),
+                                            };
+                                            self.contacts.insert(0, self_contact.clone());
+                                            if let Some(msgr) = &self.messenger {
+                                                let msgr_c = msgr.clone();
+                                                let sc = self_contact.clone();
+                                                self.rt.spawn(async move {
+                                                    msgr_c.db.write().await.add_contact(sc);
+                                                });
+                                            }
+                                        }
+
+                                        if self.state.notifications_enabled {
+                                            self.state.toast_notification = Some(crate::state::ToastNotification {
+                                                sender_id: self.state.my_node_id.clone(),
+                                                sender_name: format!("{} (Вы)", self.state.my_name),
+                                                text: text.clone(),
+                                                created_at: std::time::Instant::now(),
+                                            });
+                                        }
+                                    } else if !is_saved_messages {
+                                        let exists = self.contacts.iter().any(|c| &c.user_id_hex == target_id);
+                                        if !exists && active_group.is_none() {
+                                            let new_contact = nodex_messenger::db::SavedContact {
+                                                user_id_hex: target_id.clone(),
+                                                name: format!("Узел {}", &target_id[..6.min(target_id.len())]),
+                                                bio: "P2P контакт".to_string(),
+                                                ed25519_pub_hex: target_id.clone(),
+                                                x25519_pub_hex: target_id.clone(),
+                                                last_seen_addr: "".to_string(),
+                                            };
+                                            self.contacts.insert(0, new_contact.clone());
+                                            if let Some(msgr) = &self.messenger {
+                                                let msgr_c = msgr.clone();
+                                                let nc = new_contact.clone();
+                                                self.rt.spawn(async move {
+                                                    msgr_c.db.write().await.add_contact(nc);
+                                                });
+                                            }
+                                        }
+                                    }
 
                                     if !is_saved_messages {
                                         if let Some(msgr) = &self.messenger {
@@ -562,13 +687,16 @@ impl App for NodeXApp {
                                 }
                             }
                             ChatEventOut::SendVoiceNote { voice_note } => {
-                                if let Some(target_id) = active_target_id {
+                                if let Some(ref target_id) = active_target_id {
+                                    let is_saved_messages = target_id == "self_saved_messages";
+                                    let is_self_node = target_id == &self.state.my_node_id;
+
                                     self.state.audio_player.play_sent_sound();
                                     let new_msg = SavedChatMessage {
                                         id: format!("msg_{}", hex::encode(&rand_bytes())),
                                         sender_id_hex: self.state.my_node_id.clone(),
                                         recipient_id_hex: target_id.to_string(),
-                                        text: format!("🎙 Voice message ({})", voice_note.formatted_duration()),
+                                        text: format!("🎙 Голосовое сообщение ({})", voice_note.formatted_duration()),
                                         image_base64: None,
                                         voice_note: Some(voice_note.clone()),
                                         reply_to_id: None,
@@ -576,15 +704,39 @@ impl App for NodeXApp {
                                         is_edited: false,
                                         edit_timestamp: None,
                                         reactions: std::collections::HashMap::new(),
-                                        group_id: active_group.map(|g| g.group_id.clone()),
+                                        group_id: active_group.as_ref().map(|g| g.group_id.clone()),
                                         is_pinned: false,
                                         expires_at: None,
                                         timestamp: chrono::Utc::now().timestamp() as u64,
                                         incoming: false,
-                                        delivered: is_saved_messages,
+                                        delivered: is_saved_messages || is_self_node,
                                     };
                                     self.messages.push(new_msg);
                                     self.state.network_stats.messages_sent += 1;
+
+                                    if is_self_node {
+                                        let exists = self.contacts.iter().any(|c| c.user_id_hex == self.state.my_node_id);
+                                        if !exists {
+                                            let self_contact = nodex_messenger::db::SavedContact {
+                                                user_id_hex: self.state.my_node_id.clone(),
+                                                name: format!("{} (Вы)", self.state.my_name),
+                                                bio: "Личные сообщения".to_string(),
+                                                ed25519_pub_hex: self.state.my_node_id.clone(),
+                                                x25519_pub_hex: self.state.my_node_id.clone(),
+                                                last_seen_addr: "127.0.0.1:0".to_string(),
+                                            };
+                                            self.contacts.insert(0, self_contact);
+                                        }
+
+                                        if self.state.notifications_enabled {
+                                            self.state.toast_notification = Some(crate::state::ToastNotification {
+                                                sender_id: self.state.my_node_id.clone(),
+                                                sender_name: format!("{} (Вы)", self.state.my_name),
+                                                text: "Голосовое сообщение".to_string(),
+                                                created_at: std::time::Instant::now(),
+                                            });
+                                        }
+                                    }
 
                                     if !is_saved_messages {
                                         if let Some(msgr) = &self.messenger {
@@ -598,8 +750,11 @@ impl App for NodeXApp {
                                 }
                             }
                             ChatEventOut::SendFile { filepath } => {
-                                if let Some(target_id) = active_target_id {
+                                if let Some(ref target_id) = active_target_id {
                                     if let Ok(data) = std::fs::read(&filepath) {
+                                        let is_saved_messages = target_id == "self_saved_messages";
+                                        let is_self_node = target_id == &self.state.my_node_id;
+
                                         self.state.audio_player.play_sent_sound();
                                         let filename = std::path::Path::new(&filepath)
                                             .file_name()
@@ -619,15 +774,39 @@ impl App for NodeXApp {
                                             is_edited: false,
                                             edit_timestamp: None,
                                             reactions: std::collections::HashMap::new(),
-                                            group_id: active_group.map(|g| g.group_id.clone()),
+                                            group_id: active_group.as_ref().map(|g| g.group_id.clone()),
                                             is_pinned: false,
                                             expires_at: None,
                                             timestamp: chrono::Utc::now().timestamp() as u64,
                                             incoming: false,
-                                            delivered: is_saved_messages,
+                                            delivered: is_saved_messages || is_self_node,
                                         };
                                         self.messages.push(new_msg);
                                         self.state.network_stats.messages_sent += 1;
+
+                                        if is_self_node {
+                                            let exists = self.contacts.iter().any(|c| c.user_id_hex == self.state.my_node_id);
+                                            if !exists {
+                                                let self_contact = nodex_messenger::db::SavedContact {
+                                                    user_id_hex: self.state.my_node_id.clone(),
+                                                    name: format!("{} (Вы)", self.state.my_name),
+                                                    bio: "Личные сообщения".to_string(),
+                                                    ed25519_pub_hex: self.state.my_node_id.clone(),
+                                                    x25519_pub_hex: self.state.my_node_id.clone(),
+                                                    last_seen_addr: "127.0.0.1:0".to_string(),
+                                                };
+                                                self.contacts.insert(0, self_contact);
+                                            }
+
+                                            if self.state.notifications_enabled {
+                                                self.state.toast_notification = Some(crate::state::ToastNotification {
+                                                    sender_id: self.state.my_node_id.clone(),
+                                                    sender_name: format!("{} (Вы)", self.state.my_name),
+                                                    text: format!("Файл: {}", filename),
+                                                    created_at: std::time::Instant::now(),
+                                                });
+                                            }
+                                        }
 
                                         if !is_saved_messages {
                                             if let Some(msgr) = &self.messenger {
@@ -767,13 +946,23 @@ impl App for NodeXApp {
             views::add_contact::render_add_contact_modal(ctx, &mut self.state, &theme, &mut new_contact_out, msgr);
         }
         if let Some((id, alias)) = new_contact_out {
+            let x25519_pub = if id.len() == 64 {
+                id.clone()
+            } else {
+                use sha2::Digest;
+                let mut hasher = sha2::Sha256::new();
+                hasher.update(b"NodeX-Deterministic-X25519");
+                hasher.update(id.as_bytes());
+                let hash: [u8; 32] = hasher.finalize().into();
+                hex::encode(hash)
+            };
             let contact = SavedContact {
                 user_id_hex: id.clone(),
                 name: alias.clone(),
                 bio: String::new(),
                 ed25519_pub_hex: id.clone(),
-                x25519_pub_hex: id.clone(),
-                last_seen_addr: String::new(),
+                x25519_pub_hex: x25519_pub.clone(),
+                last_seen_addr: "127.0.0.1:8444".to_string(),
             };
             self.contacts.retain(|c| c.user_id_hex != id);
             self.contacts.insert(0, contact.clone());
@@ -784,6 +973,7 @@ impl App for NodeXApp {
                 let msgr_clone = msgr.clone();
                 let peer_id = id.clone();
                 let custom_alias = alias.clone();
+                let peer_x25519 = x25519_pub.clone();
                 self.rt.spawn(async move {
                     if let Ok(c) = msgr_clone.add_contact_by_invite(&peer_id).await {
                         println!("[ADD_CONTACT] Verified and added invite contact: {} ({})", c.name, c.user_id_hex);
@@ -798,8 +988,8 @@ impl App for NodeXApp {
                             name: custom_alias,
                             bio: String::new(),
                             ed25519_pub_hex: peer_id.clone(),
-                            x25519_pub_hex: peer_id.clone(),
-                            last_seen_addr: String::new(),
+                            x25519_pub_hex: peer_x25519,
+                            last_seen_addr: "127.0.0.1:8444".to_string(),
                         });
                         db.save_to_file(&msgr_clone.db_path).ok();
                     }
@@ -900,38 +1090,205 @@ impl App for NodeXApp {
             views::settings_modal::render_settings_modal(ctx, &mut self.state, &theme, msgr);
         }
         render_media_viewer(ctx, &mut self.state.modals.media_viewer, &theme);
+        views::mnemonic_modal::render_mnemonic_modal(ctx, &mut self.state, &theme);
 
-        // Render In-App Floating Toast Notification
-        if let Some(toast) = self.state.toast_notification.clone() {
-            if toast.created_at.elapsed().as_secs() > 4 {
-                self.state.toast_notification = None;
+        // Render Session Deletion Confirmation Modal ("Точно удалить сессию?")
+        if let Some(target_id) = self.state.modals.show_delete_session_confirm.clone() {
+            let mut close = false;
+            let mut confirm_delete = false;
+
+            let is_all_devices = target_id == "all_other_sessions";
+            let device_target = self.state.device_sessions.iter().find(|s| s.id == target_id).cloned();
+            let is_device_session = is_all_devices || device_target.is_some();
+
+            let (title_text, desc_text) = if is_all_devices {
+                (
+                    "Точно завершить все другие сеансы?".to_string(),
+                    "Все активные сессии на других устройствах будут завершены. Доступ к аккаунту останется только на этом компьютере.".to_string(),
+                )
+            } else if let Some(ref dev) = device_target {
+                (
+                    "Точно удалить сессию?".to_string(),
+                    format!(
+                        "Вы собираетесь завершить сеанс на устройстве «{}» ({}). Устройство будет отключено от вашего аккаунта, а ключи доступа отозваны.",
+                        dev.device_name, dev.location_ip
+                    ),
+                )
             } else {
-                egui::Area::new(egui::Id::new("toast_notification_area"))
-                    .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-20.0, 20.0))
-                    .show(ctx, |ui| {
-                        egui::Frame::none()
-                            .fill(theme.card_bg)
-                            .stroke(egui::Stroke::new(1.0_f32, theme.accent))
-                            .rounding(12.0)
-                            .inner_margin(egui::Margin::symmetric(14.0, 10.0))
-                            .show(ui, |ui| {
+                let peer_name = self.contacts.iter().find(|c| c.user_id_hex == target_id)
+                    .map(|c| c.name.clone())
+                    .or_else(|| self.groups.iter().find(|g| g.group_id == target_id).map(|g| g.title.clone()))
+                    .unwrap_or_else(|| format!("Узел {}", &target_id[..8.min(target_id.len())]));
+                (
+                    "Точно удалить сессию?".to_string(),
+                    format!(
+                        "Вы собираетесь удалить переписку и контакт «{}». Все локальные сообщения будут удалены навсегда.",
+                        peer_name
+                    ),
+                )
+            };
+
+            egui::Window::new("Удаление сессии")
+                .collapsible(false)
+                .resizable(false)
+                .movable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .frame(
+                    egui::Frame::window(&ctx.style())
+                        .fill(theme.card_bg)
+                        .rounding(Rounding::same(14.0))
+                        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(220, 38, 38)))
+                        .inner_margin(Margin::same(20.0))
+                )
+                .show(ctx, |ui| {
+                    ui.set_max_width(340.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(egui::RichText::new("⚠️").size(32.0));
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(&title_text)
+                                .size(17.0)
+                                .strong()
+                                .color(Color32::WHITE),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(&desc_text)
+                                .size(12.0)
+                                .color(theme.text_muted),
+                        );
+                        ui.add_space(18.0);
+                        ui.horizontal(|ui| {
+                            let cancel_btn = egui::Button::new(
+                                egui::RichText::new("Отмена").size(12.0).strong().color(theme.text_primary)
+                            )
+                            .fill(theme.bubble_other_bg)
+                            .rounding(Rounding::same(8.0));
+
+                            if ui.add_sized(Vec2::new(135.0, 34.0), cancel_btn).clicked() {
+                                close = true;
+                            }
+
+                            ui.add_space(8.0);
+
+                            let del_btn = egui::Button::new(
+                                egui::RichText::new("Удалить").size(12.0).strong().color(Color32::WHITE)
+                            )
+                            .fill(Color32::from_rgb(220, 38, 38))
+                            .rounding(Rounding::same(8.0));
+
+                            if ui.add_sized(Vec2::new(135.0, 34.0), del_btn).clicked() {
+                                confirm_delete = true;
+                            }
+                        });
+                    });
+                });
+
+            if confirm_delete {
+                if is_all_devices {
+                    self.state.device_sessions.retain(|s| s.is_current);
+                    self.state.audio_player.play_notification_sound();
+                } else if is_device_session {
+                    self.state.device_sessions.retain(|s| s.id != target_id);
+                    self.state.audio_player.play_notification_sound();
+                } else {
+                    self.contacts.retain(|c| c.user_id_hex != target_id);
+                    self.groups.retain(|g| g.group_id != target_id);
+                    self.messages.retain(|m| m.sender_id_hex != target_id && m.recipient_id_hex != target_id && m.group_id.as_deref() != Some(&target_id));
+                    if self.state.selected_chat_id.as_deref() == Some(&target_id) {
+                        self.state.selected_chat_id = None;
+                    }
+                    if self.state.selected_group_id.as_deref() == Some(&target_id) {
+                        self.state.selected_group_id = None;
+                    }
+                    if let Some(msgr) = &self.messenger {
+                        let msgr_clone = msgr.clone();
+                        let tid = target_id.clone();
+                        self.rt.spawn(async move {
+                            msgr_clone.delete_contact(&tid).await;
+                        });
+                    }
+                }
+                self.state.swipe_offsets.remove(&target_id);
+                self.state.swipe_offsets.remove(&format!("device_{}", target_id));
+                self.state.modals.show_delete_session_confirm = None;
+            } else if close {
+                self.state.swipe_offsets.remove(&target_id);
+                self.state.swipe_offsets.remove(&format!("device_{}", target_id));
+                self.state.modals.show_delete_session_confirm = None;
+            }
+        }
+
+        // Render In-App Floating Top Push Notification (if notifications enabled & not zen mode)
+        if self.state.notifications_enabled && !self.state.zen_mode {
+            if let Some(toast) = self.state.toast_notification.clone() {
+                if toast.created_at.elapsed().as_secs_f32() > 4.5 {
+                    self.state.toast_notification = None;
+                } else {
+                    egui::Area::new(egui::Id::new("top_push_notification_area"))
+                        .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 16.0))
+                        .order(egui::Order::Tooltip)
+                        .show(ctx, |ui| {
+                            let frame = egui::Frame::none()
+                                .fill(Color32::from_rgba_premultiplied(17, 24, 39, 245))
+                                .stroke(egui::Stroke::new(1.2_f32, Color32::from_rgb(59, 130, 246)))
+                                .rounding(14.0)
+                                .inner_margin(egui::Margin::symmetric(16.0, 12.0));
+
+                            frame.show(ui, |ui| {
+                                ui.set_max_width(420.0);
                                 ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new("💬").size(16.0));
-                                    ui.vertical(|ui| {
-                                        ui.label(egui::RichText::new(&toast.sender_name).strong().size(12.0).color(theme.accent));
-                                        let snippet = crate::theme::truncate_str(&toast.text, 40);
-                                        ui.label(egui::RichText::new(snippet).size(12.0).color(theme.text_primary));
-                                    });
-                                    if ui.button(egui::RichText::new("Open").size(11.0).strong().color(egui::Color32::WHITE))
-                                        .clicked()
-                                    {
+                                    // Notification Icon / Avatar
+                                    crate::components::avatar::draw_avatar(ui, &toast.sender_id, &toast.sender_name, 36.0, true);
+                                    ui.add_space(8.0);
+
+                                    let card_resp = ui.vertical(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label(
+                                                egui::RichText::new(&toast.sender_name)
+                                                    .strong()
+                                                    .size(13.0)
+                                                    .color(Color32::from_rgb(96, 165, 250)),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new("• сейчас")
+                                                    .size(10.5)
+                                                    .color(theme.text_muted),
+                                            );
+                                        });
+                                        let snippet = crate::theme::truncate_str(&toast.text, 44);
+                                        ui.label(
+                                            egui::RichText::new(snippet)
+                                                .size(12.0)
+                                                .color(Color32::from_rgb(243, 244, 246)),
+                                        );
+                                    }).response;
+
+                                    ui.add_space(8.0);
+
+                                    // Action buttons
+                                    let open_btn = egui::Button::new(
+                                        egui::RichText::new("Открыть")
+                                            .size(11.5)
+                                            .strong()
+                                            .color(Color32::WHITE)
+                                    )
+                                    .fill(Color32::from_rgb(37, 99, 235))
+                                    .rounding(Rounding::same(8.0));
+
+                                    if ui.add(open_btn).clicked() || card_resp.clicked() {
                                         self.state.selected_chat_id = Some(toast.sender_id.clone());
                                         self.state.selected_group_id = None;
                                         self.state.toast_notification = None;
                                     }
+
+                                    if ui.button(egui::RichText::new("✕").size(12.0).color(theme.text_muted)).clicked() {
+                                        self.state.toast_notification = None;
+                                    }
                                 });
                             });
-                    });
+                        });
+                }
             }
         }
 

@@ -10,6 +10,8 @@ use crate::rpc::{NetworkManager, RpcPayload};
 
 pub const DEFAULT_TTL: Duration = Duration::from_secs(24 * 3600); // 24 hours
 pub const REPUBLISH_INTERVAL: Duration = Duration::from_secs(3600); // 1 hour
+const MAX_STORAGE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_STORAGE_RECORDS: usize = 50_000;
 
 #[derive(Clone, Debug)]
 pub struct Record {
@@ -38,6 +40,7 @@ impl Record {
 #[derive(Default, Debug)]
 pub struct Storage {
     data: HashMap<NodeId, Record>,
+    stored_bytes: usize,
 }
 
 impl Storage {
@@ -46,7 +49,26 @@ impl Storage {
     }
 
     pub fn put(&mut self, key: NodeId, value: Vec<u8>, ttl: Duration) {
+        if value.len() > MAX_STORAGE_BYTES {
+            eprintln!("[STORE] Refusing oversized record ({} bytes)", value.len());
+            return;
+        }
+        if let Some(previous) = self.data.remove(&key) {
+            self.stored_bytes = self.stored_bytes.saturating_sub(previous.value.len());
+        }
+        while self.stored_bytes.saturating_add(value.len()) > MAX_STORAGE_BYTES
+            || self.data.len() >= MAX_STORAGE_RECORDS
+        {
+            let oldest_key = self.data.iter()
+                .min_by_key(|(_, record)| record.created_at)
+                .map(|(key, _)| *key);
+            let Some(oldest_key) = oldest_key else { break };
+            if let Some(expired) = self.data.remove(&oldest_key) {
+                self.stored_bytes = self.stored_bytes.saturating_sub(expired.value.len());
+            }
+        }
         println!("[STORE] Storing key {} ({} bytes, TTL={:?})", key, value.len(), ttl);
+        self.stored_bytes = self.stored_bytes.saturating_add(value.len());
         self.data.insert(key, Record::new(value, ttl));
     }
 
@@ -60,17 +82,23 @@ impl Storage {
     }
 
     pub fn remove(&mut self, key: &NodeId) -> Option<Record> {
-        self.data.remove(key)
+        let removed = self.data.remove(key);
+        if let Some(record) = &removed {
+            self.stored_bytes = self.stored_bytes.saturating_sub(record.value.len());
+        }
+        removed
     }
 
     pub fn clear(&mut self) {
         self.data.clear();
+        self.stored_bytes = 0;
     }
 
     pub fn cleanup_stale(&mut self) -> usize {
         let before = self.data.len();
         self.data.retain(|_, record| !record.is_expired());
         let removed = before - self.data.len();
+        self.stored_bytes = self.data.values().map(|record| record.value.len()).sum();
         if removed > 0 {
             println!("[STORE] Cleaned up {} expired records", removed);
         }

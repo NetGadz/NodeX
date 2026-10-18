@@ -29,6 +29,7 @@ pub enum FolderFilter {
 pub enum ThemeMode {
     Dark,
     Midnight,
+    Matrix,
     Day,
 }
 
@@ -48,6 +49,8 @@ pub struct AppModalState {
     pub show_network: bool,
     pub show_settings: bool,
     pub media_viewer: MediaViewerModalState,
+    pub show_mnemonic_modal: bool,
+    pub show_delete_session_confirm: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -90,8 +93,20 @@ impl Default for NetworkStats {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AccountDeviceSession {
+    pub id: String,
+    pub device_name: String,
+    pub app_version: String,
+    pub platform_icon: String,
+    pub location_ip: String,
+    pub last_active_str: String,
+    pub is_current: bool,
+}
+
 #[allow(dead_code)]
 pub struct AppState {
+    pub device_sessions: Vec<AccountDeviceSession>,
     pub my_node_id: String,
     pub my_invite_link: String,
     pub my_name: String,
@@ -178,6 +193,7 @@ pub struct AppState {
     pub zen_mode: bool,
     pub mood_status: String,
     pub toast_notification: Option<ToastNotification>,
+    pub last_seen_peers: std::collections::HashMap<String, u64>,
 
     // Additional Settings & Customization
     pub chat_font_size: f32,
@@ -189,6 +205,12 @@ pub struct AppState {
     pub auto_delete_secs: u64,
     pub voice_modulator: String,
     pub duress_pin_hash: Option<String>,
+    pub swipe_offsets: std::collections::HashMap<String, f32>,
+    pub custom_accent: Option<[u8; 3]>,
+    pub bubble_rounding: f32,
+    pub chat_wallpaper_type: String,
+    pub auto_night_mode: bool,
+    pub font_family: String,
 }
 
 #[derive(Clone, Debug)]
@@ -209,6 +231,44 @@ impl AppState {
             .unwrap_or_else(|_| "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678".to_string());
 
         Self {
+            device_sessions: vec![
+                AccountDeviceSession {
+                    id: "sess_current".to_string(),
+                    device_name: "Windows Desktop (Этот компьютер)".to_string(),
+                    app_version: "NodeX Desktop v0.1.0 • P2P Headless".to_string(),
+                    platform_icon: "💻".to_string(),
+                    location_ip: format!("127.0.0.1:{} • Текущий сеанс", port),
+                    last_active_str: "Онлайн сейчас".to_string(),
+                    is_current: true,
+                },
+                AccountDeviceSession {
+                    id: "sess_ios_15".to_string(),
+                    device_name: "iPhone 15 Pro".to_string(),
+                    app_version: "NodeX iOS v0.1.0 • E2EE".to_string(),
+                    platform_icon: "📱".to_string(),
+                    location_ip: "185.220.101.5 • Москва".to_string(),
+                    last_active_str: "12 минут назад".to_string(),
+                    is_current: false,
+                },
+                AccountDeviceSession {
+                    id: "sess_mac_air".to_string(),
+                    device_name: "MacBook Air M2".to_string(),
+                    app_version: "NodeX macOS v0.1.0 • Mesh Client".to_string(),
+                    platform_icon: "🍏".to_string(),
+                    location_ip: "94.125.243.37 • Санкт-Петербург".to_string(),
+                    last_active_str: "Вчера в 19:42".to_string(),
+                    is_current: false,
+                },
+                AccountDeviceSession {
+                    id: "sess_srv_genesis".to_string(),
+                    device_name: "Ubuntu Cloud Node (Genesis)".to_string(),
+                    app_version: "NodeX Daemon 0.1.0 • DHT Relay".to_string(),
+                    platform_icon: "🐧".to_string(),
+                    location_ip: "31.77.71.122:8443 • Франкфурт".to_string(),
+                    last_active_str: "Онлайн".to_string(),
+                    is_current: false,
+                },
+            ],
             my_node_id: initial_id,
             my_invite_link: String::new(),
             my_name: display_name,
@@ -274,6 +334,7 @@ impl AppState {
             zen_mode: false,
             mood_status: "☕ Ready".to_string(),
             toast_notification: None,
+            last_seen_peers: std::collections::HashMap::new(),
             chat_font_size: 13.5,
             send_on_enter: true,
             compact_bubbles: true,
@@ -283,6 +344,35 @@ impl AppState {
             auto_delete_secs: 0,
             voice_modulator: "Оригинал".to_string(),
             duress_pin_hash: None,
+            swipe_offsets: std::collections::HashMap::new(),
+            custom_accent: None,
+            bubble_rounding: 14.0,
+            chat_wallpaper_type: "mesh".to_string(),
+            auto_night_mode: false,
+            font_family: "Default".to_string(),
+        }
+    }
+
+    pub fn mark_peer_active(&mut self, peer_id: &str) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.last_seen_peers.insert(peer_id.to_string(), now);
+    }
+
+    pub fn is_peer_online(&self, peer_id: &str) -> bool {
+        if peer_id == "self_saved_messages" || peer_id == self.my_node_id {
+            return false;
+        }
+        if let Some(&last_seen) = self.last_seen_peers.get(peer_id) {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            now.saturating_sub(last_seen) < 120
+        } else {
+            false
         }
     }
 }

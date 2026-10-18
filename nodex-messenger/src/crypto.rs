@@ -16,6 +16,7 @@ use nodex_kademlia::node::NodeId;
 
 pub const ENVELOPE_VERSION: u8 = 3;
 pub const MAX_REPLAY_WINDOW_SECS: u64 = 7 * 86400; // 7 days mailbox retention window
+const MAX_REPLAY_CACHE_ENTRIES: usize = 100_000;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EncryptedEnvelope {
@@ -170,14 +171,20 @@ impl ReplayProtectionCache {
         hasher.update(signature);
         let hash: [u8; 32] = hasher.finalize().into();
 
-        let mut lock = self.seen_hashes.write().unwrap();
-        // Evict expired entries if cache gets large
-        if lock.len() > 10000 {
-            lock.retain(|_, &mut entry_ts| now.saturating_sub(entry_ts) <= MAX_REPLAY_WINDOW_SECS);
-        }
+        let mut lock = match self.seen_hashes.write() {
+            Ok(lock) => lock,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        // Expire entries on every insert so low-volume nodes do not retain stale
+        // replay keys forever. Refuse new work at the hard cap instead of
+        // evicting still-valid signatures and reopening the replay window.
+        lock.retain(|_, &mut entry_ts| now.saturating_sub(entry_ts) <= MAX_REPLAY_WINDOW_SECS);
 
         if lock.contains_key(&hash) {
             return false; // Replay detected!
+        }
+        if lock.len() >= MAX_REPLAY_CACHE_ENTRIES {
+            return false;
         }
         lock.insert(hash, timestamp);
         true

@@ -43,3 +43,17 @@ pub struct CallAudioChunk {
     pub sample_rate: u32,
     pub seq: u64,
 }
+
+/// Low-overhead encrypted audio datagram sent outside DHT/RPC request handling.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CallAudioDatagram {
+    pub version: u8,
+    pub sender_id: String,
+    pub recipient_id: String,
+    pub call_id: String,
+    pub seq: u64,
+    pub sample_rate: u32,
+    pub nonce: Vec<u8>,
+    pub ephemeral_x25519_pub: Vec<u8>,
+    pub ciphertext: Vec<u8>,
+}

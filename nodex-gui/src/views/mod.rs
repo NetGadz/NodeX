@@ -11,4 +11,5 @@ pub mod right_drawer;
 pub mod settings_modal;
 pub mod sidebar;
 pub mod stego_studio;
+pub mod mnemonic_modal;
 

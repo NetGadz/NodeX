@@ -159,67 +159,76 @@ pub fn draw_pause_icon(painter: &egui::Painter, rect: Rect, color: Color32) {
     painter.rect_filled(b2, egui::Rounding::same(1.0), color);
 }
 
-pub const NODEX_LOGO_BYTES: &[u8] = include_bytes!("../../assets/photo.jpg");
-
-/// Render the official NodeX photo logo from assets
+/// Render the ultra-modern futuristic NodeX logo widget
 pub fn render_nodex_logo_widget(ui: &mut egui::Ui, size: f32) -> egui::Response {
-    let img = egui::Image::from_bytes("bytes://nodex_logo_photo.jpg", NODEX_LOGO_BYTES)
-        .fit_to_exact_size(Vec2::splat(size))
-        .rounding(egui::Rounding::same(8.0));
-    ui.add(img)
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    draw_nodex_logo(&painter, rect, Color32::from_rgb(59, 130, 246));
+    resp
 }
 
-/// Fallback painter for vector logo
-pub fn draw_nodex_logo(painter: &egui::Painter, rect: Rect, _accent: Color32) {
+/// Vector painter for the modern cyberpunk NodeX Nexus logo
+pub fn draw_nodex_logo(painter: &egui::Painter, rect: Rect, accent: Color32) {
     let center = rect.center();
     let size = rect.width().min(rect.height());
-    let r = size * 0.45;
+    let r = size * 0.46;
 
-    // Smooth rounded dark container
-    let bg_color = Color32::from_rgb(19, 23, 34); // #131722
-    let border_color = Color32::from_rgb(34, 41, 58); // #22293A
-    painter.rect_filled(rect, egui::Rounding::same(8.0), bg_color);
-    painter.rect_stroke(rect, egui::Rounding::same(8.0), Stroke::new(1.0_f32, border_color));
+    // 1. High-tech squircle base container with subtle glass border
+    let bg_color = Color32::from_rgb(11, 15, 25); // Deep Obsidian
+    let border_color = Color32::from_rgb(34, 46, 68); // Cyber Slate
+    let rounding = egui::Rounding::same(size * 0.28);
 
-    // 3 Triad Node Centers matching the 3D 'N' organic loop
-    let p_top = Pos2::new(center.x + r * 0.05, center.y - r * 0.45);
-    let p_left = Pos2::new(center.x - r * 0.48, center.y + r * 0.42);
-    let p_right = Pos2::new(center.x + r * 0.50, center.y + r * 0.42);
+    painter.rect_filled(rect, rounding, bg_color);
+    painter.rect_stroke(rect, rounding, Stroke::new(1.2_f32, border_color));
 
-    let bridge_width = r * 0.28;
-    let node_radius = r * 0.26;
+    // Subtle inner glowing border
+    let inner_rect = rect.shrink(1.5);
+    painter.rect_stroke(
+        inner_rect,
+        egui::Rounding::same(size * 0.26),
+        Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(accent.r(), accent.g(), accent.b(), 40)),
+    );
 
-    // Organic curved connecting bridges
-    let steps = 16;
-    for i in 0..steps {
-        let t0 = i as f32 / steps as f32;
-        let t1 = (i + 1) as f32 / steps as f32;
+    // 2. Futuristic diagonal intersecting laser blades (The "X")
+    let span = r * 0.62;
+    let blade_w = (size * 0.12).max(2.8);
 
-        let ctrl_left = Pos2::new(center.x - r * 0.25, center.y - r * 0.25);
-        let pt0 = quadratic_bezier(p_left, ctrl_left, p_top, t0);
-        let pt1 = quadratic_bezier(p_left, ctrl_left, p_top, t1);
+    // Diagonal 1: Top-Left to Bottom-Right (Vibrant Electric Blue to Cyan)
+    let p_tl = Pos2::new(center.x - span, center.y - span);
+    let p_br = Pos2::new(center.x + span, center.y + span);
+    painter.line_segment(
+        [p_tl, p_br],
+        Stroke::new(blade_w, Color32::from_rgb(59, 130, 246)),
+    );
 
-        let w = bridge_width * (0.85 + (t0 - 0.5).abs() * 0.3);
-        painter.line_segment([pt0, pt1], Stroke::new(w, Color32::from_rgb(230, 235, 245)));
+    // Diagonal 2: Top-Right to Bottom-Left (Cyan / Electric Emerald)
+    let p_tr = Pos2::new(center.x + span, center.y - span);
+    let p_bl = Pos2::new(center.x - span, center.y + span);
+    painter.line_segment(
+        [p_tr, p_bl],
+        Stroke::new(blade_w, Color32::from_rgb(6, 182, 212)),
+    );
+
+    // 3. Four Orbiting Micro-Nodes (P2P Mesh vertices)
+    let node_r = (size * 0.08).max(2.0);
+    for pt in [p_tl, p_tr, p_bl, p_br] {
+        // Outer halo
+        painter.circle_filled(pt, node_r * 1.5, Color32::from_rgba_premultiplied(59, 130, 246, 60));
+        // Solid core
+        painter.circle_filled(pt, node_r, Color32::from_rgb(243, 244, 246));
     }
 
-    for i in 0..steps {
-        let t0 = i as f32 / steps as f32;
-        let t1 = (i + 1) as f32 / steps as f32;
-
-        let ctrl_right = Pos2::new(center.x + r * 0.35, center.y - r * 0.05);
-        let pt0 = quadratic_bezier(p_top, ctrl_right, p_right, t0);
-        let pt1 = quadratic_bezier(p_top, ctrl_right, p_right, t1);
-
-        let w = bridge_width * (0.85 + (t0 - 0.5).abs() * 0.3);
-        painter.line_segment([pt0, pt1], Stroke::new(w, Color32::from_rgb(215, 222, 235)));
-    }
-
-    draw_3d_sphere(painter, p_left, node_radius);
-    draw_3d_sphere(painter, p_right, node_radius);
-    draw_3d_sphere(painter, p_top, node_radius * 1.05);
+    // 4. Central Quantum Energy Pulsar Core
+    let core_r = (size * 0.14).max(3.5);
+    // Outer glow aura
+    painter.circle_filled(center, core_r * 1.8, Color32::from_rgba_premultiplied(96, 165, 250, 45));
+    // Mid energy ring
+    painter.circle_filled(center, core_r * 1.2, Color32::from_rgb(14, 165, 233));
+    // Bright white specular core
+    painter.circle_filled(center, core_r * 0.6, Color32::WHITE);
 }
 
+#[allow(dead_code)]
 fn quadratic_bezier(p0: Pos2, p1: Pos2, p2: Pos2, t: f32) -> Pos2 {
     let u = 1.0 - t;
     let tt = t * t;
@@ -232,6 +241,7 @@ fn quadratic_bezier(p0: Pos2, p1: Pos2, p2: Pos2, t: f32) -> Pos2 {
     )
 }
 
+#[allow(dead_code)]
 fn draw_3d_sphere(painter: &egui::Painter, center: Pos2, radius: f32) {
     // Base shadow / ambient
     painter.circle_filled(center, radius, Color32::from_rgb(200, 208, 222));

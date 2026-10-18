@@ -167,7 +167,7 @@ pub fn render_stego_studio(
 
                             ui.add_space(8.0);
 
-                            if ui.button("[ Select Source Photo ]").clicked() {
+                            if ui.button("Выбрать фото-носитель").clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("Images", &["png", "jpg", "jpeg", "webp", "bmp"])
                                     .pick_file()

@@ -1,0 +1,12 @@
+[package]
+name = "nodex-consensus"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nodex-types = { path = "../nodex-types" }
+nodex-exec = { path = "../nodex-exec" }
+nodex-crypto = { path = "../nodex-crypto" }
+borsh = { version = "1.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"

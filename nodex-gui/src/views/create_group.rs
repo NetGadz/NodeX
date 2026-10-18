@@ -93,7 +93,7 @@ pub fn render_create_group_modal(
             ui.add_space(16.0);
 
             ui.horizontal(|ui| {
-                if ui.button(egui::RichText::new("[ Отмена ]").color(theme.text_muted)).clicked() {
+                if ui.button(egui::RichText::new("Отмена").color(theme.text_muted)).clicked() {
                     state.modals.show_create_group = false;
                 }
 

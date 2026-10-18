@@ -1,0 +1,10 @@
+[package]
+name = "nodex-vm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nodex-types = { path = "../nodex-types" }
+nodex-state = { path = "../nodex-state" }
+wasmi = "0.31"
+thiserror = "1.0"

@@ -87,7 +87,7 @@ pub fn render_right_drawer(
                                     .size(11.0)
                                     .color(theme.accent),
                             );
-                            if ui.button(egui::RichText::new("[ Copy ]").size(11.0)).clicked() {
+                            if ui.button(egui::RichText::new("Копировать").size(11.0)).clicked() {
                                 ui.output_mut(|o| o.copied_text = target_id.to_string());
                             }
                         });

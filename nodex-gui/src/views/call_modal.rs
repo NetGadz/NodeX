@@ -66,7 +66,7 @@ pub fn render_call_modal(ctx: &egui::Context, state: &mut AppState, theme: &Them
                     ui.horizontal(|ui| {
                         // Accept Call
                         let accept_btn = egui::Button::new(
-                            egui::RichText::new("[ Accept ]")
+                            egui::RichText::new("Принять")
                                 .color(Color32::WHITE)
                                 .size(13.0)
                                 .strong(),
@@ -85,7 +85,7 @@ pub fn render_call_modal(ctx: &egui::Context, state: &mut AppState, theme: &Them
 
                         // Decline Call
                         let decline_btn = egui::Button::new(
-                            egui::RichText::new("[ Decline ]")
+                            egui::RichText::new("Отклонить")
                                 .color(Color32::WHITE)
                                 .size(13.0)
                                 .strong(),
@@ -102,7 +102,7 @@ pub fn render_call_modal(ctx: &egui::Context, state: &mut AppState, theme: &Them
                         // Mute button
                         let is_muted = call_state.is_muted;
                         let mute_btn = egui::Button::new(
-                            egui::RichText::new(if is_muted { "[ Unmute ]" } else { "[ Mute ]" })
+                            egui::RichText::new(if is_muted { "Вкл микрофон" } else { "Выкл микрофон" })
                                 .size(12.0)
                                 .color(theme.text_primary),
                         )
@@ -110,7 +110,7 @@ pub fn render_call_modal(ctx: &egui::Context, state: &mut AppState, theme: &Them
                         .stroke(Stroke::new(1.0_f32, BORDER_COLOR))
                         .rounding(Rounding::same(8.0));
 
-                        if ui.add_sized(vec2(95.0, 34.0), mute_btn).clicked() {
+                        if ui.add_sized(vec2(120.0, 34.0), mute_btn).clicked() {
                             if let Some(cs) = &mut state.call_state {
                                 cs.is_muted = !cs.is_muted;
                             }
@@ -120,7 +120,7 @@ pub fn render_call_modal(ctx: &egui::Context, state: &mut AppState, theme: &Them
 
                         // End Call Button
                         let hangup_btn = egui::Button::new(
-                            egui::RichText::new("[ End Call ]")
+                            egui::RichText::new("Завершить")
                                 .color(Color32::WHITE)
                                 .size(12.0)
                                 .strong(),

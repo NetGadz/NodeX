@@ -1,0 +1,11 @@
+[package]
+name = "nodex-p2p"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nodex-types = { path = "../nodex-types" }
+libp2p = { version = "0.53", features = ["gossipsub", "kad", "quic", "noise", "yamux", "tokio"] }
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
