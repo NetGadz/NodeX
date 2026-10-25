@@ -1,9 +1,0 @@
-[package]
-name = "nodex-sync"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-nodex-types = { path = "../nodex-types" }
-nodex-p2p = { path = "../nodex-p2p" }
-nodex-storage = { path = "../nodex-storage" }
