@@ -65,13 +65,20 @@
 
 ## 🇷🇺 Описание проекта
 
-**NodeX** — P2P-мессенджер с настольным клиентом на **Rust** и Android-клиентом на **Kotlin / Jetpack Compose**. Для обнаружения узлов используется bootstrap-узел; доставка может использовать временное DHT-хранилище, пока получатель не в сети.
+**NodeX** — экспериментальный P2P-мессенджер с настольным клиентом на **Rust** и Android-клиентом на **Kotlin / Jetpack Compose**. Узлы используют настроенные bootstrap-адреса и Kademlia DHT; сообщения для недоступного получателя могут сохраняться в DHT.
 
-Приложение спроектировано по принципу **Zero-Trust & Zero-Metadata**:
-- **0 телефонных номеров, 0 Email, 0 учетных записей.**
-- **Не требуется номер телефона или электронная почта.**
-- Узлы находят друг друга через bootstrap и Kademlia DHT; при недоступности получателя доставка может проходить через временный mailbox в DHT.
-- Сообщения и вложения шифруются сквозным шифрованием. Реальный маршрут зависит от сети, NAT и доступности узлов.
+Приложение не требует регистрации по телефону или электронной почте. Это не означает отсутствия серверов или метаданных: клиент по умолчанию настроен на bootstrap-узел, а DHT-узлы видят сетевые адреса, запросы и mailbox-ключи. Сообщения шифруются между идентичностями отправителя и получателя; сетевые метаданные этим не скрываются.
+
+### Статус возможностей
+
+- **Реализовано в коде:** Ed25519-подписи идентичностей и сообщений, X25519, ChaCha20-Poly1305-конверты, Kademlia DHT, хранение зашифрованных конвертов в DHT, локальная база данных и стегоконтейнеры.
+- **Криптография сообщений экспериментальная:** Desktop отправляет конверты v4 с ephemeral-to-static X25519; Android сейчас использует несовместимые формат подписи и derivation ключа v3. По текущему коду desktop и Android не могут расшифровывать сообщения друг друга. Совместимость клиентов не работает и должна быть исправлена.
+- **Нет forward secrecy:** X3DH, Double Ratchet и ML-KEM не реализованы. Компрометация постоянного X25519 ключа получателя может раскрыть ранее записанные конверты. Подписи подтверждают владение криптографическим ключом, но не личность человека; проверяйте fingerprint по отдельному доверенному каналу.
+- **Экспериментальный модуль:** `nodex-kademlia/src/onion.rs` умеет строить и разбирать двухслойный пакет, но обычный маршрут отправки мессенджера его не вызывает. Переключатель Onion в интерфейсе не меняет доставку.
+- **Не подключено к доставке:** opt-in relay-сервис и переключатель P2P-ретрансляции. Наличие модуля не означает доступную сеть ретрансляторов.
+- **Ограничения:** STUN, UPnP, hole punching и аудиозвонки зависят от реализации, NAT и конфигурации сети; не обещается работоспособность во всех сетях. Не заявляется анонимность, сокрытие IP, защита от глобального наблюдателя или отсутствие инфраструктуры.
+
+См. [модель угроз и ограничения](docs/security.md), [примечания к протоколу](docs/protocol.md) и [threat model](docs/threat-model.md).
 
 ### Android-клиент
 
@@ -86,38 +93,24 @@ APK появится в `app/build/outputs/apk/debug/app-debug.apk`.
 
 ---
 
-## 📊 Сравнение с аналогами
-
-| Критерий | ⚡ **NodeX** | ✈️ Telegram | 🔒 Signal | 🌀 Session | ☣️ Tox |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| **Центральные серверы** | ❌ **0 серверов** | ⚠️ Да | ⚠️ Да | ❌ P2P Service Nodes | ❌ 0 серверов |
-| **Регистрация по номеру** | ❌ **Не требуется** | ⚠️ Обязательно | ⚠️ Обязательно | ❌ Не требуется | ❌ Не требуется |
-| **Защита метаданных (IP)** | ✅ **2-Hop Onion** | ❌ Сервер видит все IP | ❌ Сервер видит все IP | ✅ Onion Routing | ⚠️ Только с Tor |
-| **Стеганография (LSB)** | ✅ **Встроена** | ❌ Нет | ❌ Нет | ❌ Нет | ❌ Нет |
-| **Потребление RAM** | ⚡ **~25-40 МБ** | 🐢 ~300-800 МБ | 🐢 ~400-900 МБ | 🐢 ~350-700 МБ | ⚡ ~30-60 МБ |
-| **Язык разработки / Движок** | 🦀 **Pure Rust + egui** | C++ / Qt | C++ / Electron | JS / Electron | C / C++ |
-
 ---
 
 ## 🌟 Ключевые технологические фичи
 
-### 🛡️ 1. Децентрализованная идентичность (BIP-39 & Ed25519)
-Идентификатор пользователя генерируется детерминированно из 12/24 слов мнемонической фразы BIP-39. Отсутствует единая база пользователей — подделка профиля криптографически невозможна благодаря цифровой подписи Ed25519.
+### 🔐 1. Идентичность (мнемоника & Ed25519)
+Идентичность может быть восстановлена из мнемоники; профили и конверты используют Ed25519-подписи. Проверка подписи подтверждает владение соответствующим ключом, но не делает пользовательские утверждения истинными сама по себе.
 
-### 🧅 2. Слепая 2-Hop Onion маршрутизация ([onion.rs](nodex-kademlia/src/onion.rs))
-При включённом onion-режиме трафик послойно зашифровывается и передается через промежуточные узлы:
-```text
-[Отправитель (Вы)] ──(Слой 1+2)──> [Relay Node 1] ──(Слой 2)──> [Relay Node 2] ──(Открыто)──> [Получатель]
-                                (Видит ваш IP,             (Видит IP Relay 1,
-                                но НЕ видит текст          но НЕ видит ваш IP)
-                                 и получателя)
-```
+### 🧪 2. Экспериментальный Onion-пакет
+В [`onion.rs`](nodex-kademlia/src/onion.rs) есть примитив для упаковки двух слоёв шифрования. Он не подключён к обычной отправке, не выбирает ретрансляторы и не скрывает IP в текущем приложении. Считать его работающей onion-маршрутизацией нельзя.
 
 ### 🖼️ 3. Стеганографические крипто-аватарки (Stego-Carriers)
-Встраивание криптографического паспорта узла (`Node ID` + `X25519 PubKey` + `STUN Endpoints`) непосредственно в наименее значимые биты (LSB) пикселей любого изображения. Достаточно отправить обычную картинку в соцсети — NodeX при загрузке автоматически извлечет из нее инвайт и создаст туннель.
+Модуль встраивает подписанную карточку контакта в LSB-представление изображения и может её извлечь. Это не гарантирует сохранность данных после перекодирования изображений соцсетями и само по себе не создаёт туннель или анонимный маршрут.
 
-### 🎙️ 4. P2P Аудиозвонки & Голосовые Waveform
-Прямая зашифрованная передача легковесного аудиопотока по UDP с низкой задержкой. Для голосовых сообщений генерируется вектор огибающей амплитуды для нативного отображения осциллограммы.
+### 🎙️ 4. Экспериментальные аудиозвонки
+Desktop-клиент использует WebRTC ICE, SDP offer/answer, DTLS-SRTP и Opus. Сигналинг передаётся как зашифрованное E2EE сообщение через настроенный Kademlia DHT bootstrap; bootstrap не ретранслирует медиатрафик. По умолчанию используется STUN для обнаружения сетевого адреса. Для сетей с симметричным NAT/firewall настройте TURN переменными `NODEX_ICE_SERVERS`, `NODEX_TURN_USERNAME` и `NODEX_TURN_CREDENTIAL`. Без доступного TURN связь между некоторыми сетями не установится. Полный matrix-тест с реальными внешними сетями и TURN deployment ещё не выполнен; звонки остаются экспериментальными.
+
+### 🔐 Пароль базы и восстановление ID
+Desktop при первом запуске создаёт локальную базу, зашифрованную Argon2id + ChaCha20-Poly1305; при миграции старой локальной базы приложение сначала расшифровывает прежний формат и затем сохраняет её в новом. Пароль базы нужен на каждом запуске и не восстанавливает ID. BIP-39 дополнительная парольная фраза вводится отдельно при создании или восстановлении ID: при восстановлении нужно ввести ту же фразу. Пустая BIP-39 фраза сохраняет derivation для существующих NodeX аккаунтов.
 
 ---
 
@@ -131,34 +124,29 @@ APK появится в `app/build/outputs/apk/debug/app-debug.apk`.
                                      │ UI Events / Commands (tokio mpsc)
 ┌────────────────────────────────────▼────────────────────────────────────┐
 │                          nodex-messenger Layer                          │
-│   User Identity (Ed25519 / X25519) • BIP-39 Mnemonic Seed Derivation    │
-│   Stego-Carrier LSB Engine • Local Encrypted ChaCha20-Poly1305 DB       │
-│   5-Tier Delivery Cascade • Audio Call Engine • Contact Trust Registry  │
+│   User Identity (Ed25519 / X25519) • Mnemonic Seed Derivation           │
+│   Stego-Carrier LSB Engine • Local Encrypted Database                   │
+│   Message Delivery • Audio Call Engine • Contact Trust Registry         │
 └────────────────────────────────────┬────────────────────────────────────┘
                                      │ UDP Wire Packets / Kademlia RPC
 ┌────────────────────────────────────▼────────────────────────────────────┐
 │                          nodex-kademlia Layer                           │
-│   Kademlia DHT Routing • RFC 5389 STUN Traversal • UPnP IGD & NAT-PMP   │
-│   UDP Hole Punching Probes • Blind 2-Hop Onion Router • UDP Chunking    │
-│   Decentralized Store-and-Forward DHT Mailbox • LAN UDP Broadcast       │
+│   Kademlia DHT Routing • NAT Traversal Helpers • UDP Chunking            │
+│   DHT Mailbox • Experimental Onion Packet Module                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## ⚡ 5-Уровневый каскад доставки (Delivery Cascade)
+## 📬 Доставка сообщений (упрощённая схема)
 
 ```mermaid
 flowchart TD
-    A["Попытка отправки сообщения"] --> B{"Узел получателя доступен прямо?"}
-    B -- "Да" --> C["Tier 1: Direct UDP Fast-Path (0.01s)"]
-    B -- "Нет" --> D{"Доступен STUN Hole Punching?"}
-    D -- "Да" --> E["Tier 2: STUN Hole Punching Probe"]
-    D -- "Нет" --> F{"Поддерживается UPnP / NAT-PMP?"}
-    F -- "Да" --> G["Tier 3: UPnP Auto Port Mapping"]
-    F -- "Нет" --> H{"Включен Onion / Relay режим?"}
-    H -- "Да" --> I["Tier 4: 2-Hop Blinded Onion Relay"]
-    H -- "Нет" --> J["Tier 5: Kademlia DHT Mailbox (Store & Forward)"]
+    A["Зашифрованный конверт"] --> B{"Получатель доступен?"}
+    B -- "Да" --> C["Попытка прямой доставки"]
+    B -- "Нет / недоступен" --> D["Попытка сохранить конверт в DHT mailbox"]
+    C --> E["Успех зависит от сетевой связности и NAT"]
+    D --> F["Хранение и получение зависят от доступности DHT-узлов"]
 ```
 
 ---
@@ -169,10 +157,12 @@ flowchart TD
 | :--- | :--- | :--- |
 | **Мастер-ключ** | `BIP-39 (12/24 words) + PBKDF2` | Детерминированная генерация сида идентичности |
 | **Идентификация ноды** | `Ed25519 (RFC 8032)` | Подпись профиля, DHT-запросов и предупреждений ротации |
-| **Обмен ключами** | `X25519 (ECDH Diffie-Hellman)` | Динамическое согласование сессионных ключей |
-| **Сквозное шифрование** | `ChaCha20-Poly1305 AEAD` | Защита текста, файлов, аудиопотока и локальной БД |
+| **Desktop envelope v4** | `ephemeral X25519 + HKDF-SHA256 + ChaCha20-Poly1305` | Шифрование полезной нагрузки; без Double Ratchet и полной forward secrecy |
+| **Android envelope v3** | `ephemeral + static X25519 + HKDF v2 + ChaCha20-Poly1305` | Формат подписи и derivation отличаются; Android/Desktop несовместимы |
 | **Стеганография** | `LSB Matrix Encoding` | Скрытие данных внутри пикселей изображений PNG/JPG |
-| **Защита от атак повтора** | `Sliding Window Nonce Cache` | Предотвращение Replay & MitM атак |
+| **Защита от повторов** | `Replay cache` | Отбрасывает часть повторно доставленных подписанных конвертов; не является общей защитой от MitM или DoS |
+
+Криптографическая схема самописного приложения не прошла независимый аудит. Наличие стандартных алгоритмов само по себе не доказывает корректность протокола или безопасность реализации. Не используйте NodeX для высокорисковой переписки.
 
 ---
 
@@ -201,13 +191,13 @@ cargo test --workspace
 
 ## 🇬🇧 English Overview
 
-**NodeX** is a pure native Rust peer-to-peer messaging application engineered for zero-trust, zero-server private communication.
+**NodeX** is an experimental native Rust peer-to-peer messenger. It uses configured bootstrap nodes and a Kademlia DHT; it does not currently provide anonymous routing or metadata protection.
 
-- **100% Serverless**: Operates purely over UDP using Kademlia DHT, RFC 5389 STUN NAT hole punching, and decentralized store-and-forward mailbox relays.
-- **P2P Real-time Voice Calls**: Direct end-to-end encrypted audio calling with low latency.
-- **Steganographic Crypto-Avatars**: Embed complete cryptographic network credentials inside regular PNG/JPG images.
-- **Blind 2-Hop Onion Routing**: Anonymize network traffic and mask IP addresses across transit nodes.
-- **Ultra-Lightweight**: Native `egui`/`eframe` GUI consuming under 40 MB RAM.
+- **No phone or email registration**: Network discovery uses configured bootstrap addresses, and DHT peers can observe network metadata.
+- **Experimental desktop audio**: Uses WebRTC ICE and DTLS-SRTP; connectivity depends on NAT/firewall conditions and may require TURN.
+- **Experimental message encryption**: Desktop v4 and Android v3 currently use incompatible signature formats and key derivations, so cross-client decryption does not work. No X3DH, Double Ratchet, or ML-KEM is implemented.
+- **Steganography module**: Embed and extract contact-card data in supported images; third-party image processing can destroy the payload.
+- **Experimental onion packet code**: Not integrated into normal message delivery; no anonymity claim is made.
 - **Direct Executable**: Download [**NodeX-Windows-x64.exe**](https://github.com/NetGadz/NodeX/releases/latest/download/NodeX-Windows-x64.exe) without needing Rust installed.
 
 ---
@@ -217,5 +207,5 @@ cargo test --workspace
 Проект распространяется под лицензией **MIT License**. Подробности в файле [LICENSE](LICENSE).
 
 <div align="center">
-  <sub>Designed & Developed with ❤️ in Rust for true digital sovereignty, privacy, and censorship resistance.</sub>
+  <sub>Experimental peer-to-peer messaging project, built with Rust and Kotlin.</sub>
 </div>
